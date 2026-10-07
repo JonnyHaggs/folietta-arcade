@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 
-<title>Folietta Menu Game</title>
+<title>Folietta Arcade</title>
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Baloo+2:wght@500;700;800&family=Nunito:wght@400;600;700;800&display=swap">
 <style>
@@ -190,13 +190,131 @@ table.results-table th{font-family:var(--font-display); color:var(--ink-soft); f
 .empty{text-align:center; color:var(--ink-faint); padding:30px 10px; font-size:13.5px;}
 .fact{background:var(--bg-sunk); border-radius:13px; padding:10px 13px; font-size:12.5px; font-weight:600; margin-top:8px; color:var(--ink-soft);}
 #confetti-canvas{position:fixed; inset:0; width:100%; height:100%; pointer-events:none; z-index:999;}
+
+/* Run the Floor — a top-down map styled after Folietta's actual dining
+   room, not a generic blueprint: dark walnut walls (the real wood
+   panelling), warm cream tile floor, the burgundy accent that shows up on
+   the tile cap stripe and the "Folietta" script sign, and brass-toned
+   counters/bar. Fixed warm paper tones regardless of light/dark theme —
+   meant to read like the actual room, not reskin with the app chrome.
+   The server is just a dot an X slider (bottom) and a Y slider (right)
+   drag around the map; the same zone/table/wall shapes drawn here are
+   what the sliders physically can't drag the dot through. */
+:root{
+  --floor-wall:#3a2a1f; --floor-wall-line:#241a12; --floor-wood:#5b4030;
+  --floor-cream:#f6eeda; --floor-tile:#fffaf0; --floor-tile-line:#e3cfa6;
+  --floor-burgundy:#8c2331; --floor-burgundy-deep:#5e1620; --floor-gold:#c9a86a; --floor-brass:#b9842a;
+}
+/* Full-bleed: breaks out of #app's side padding so the map reads as a room
+   to walk around in, not a diagram pinned inside a card. */
+.floor-stage{display:grid; grid-template-columns:1fr 30px; grid-template-rows:auto auto; gap:6px 6px;
+  margin:0 -16px 14px; width:calc(100% + 32px); padding:0 6px;}
+/* Matches the camera window's own CAMERA_W/CAMERA_H in app.js (60/72) —
+   a "dynamic glass window" onto the real floor plan, not the whole thing
+   shrunk to fit; keep the two in sync if either one changes. The double
+   border (walnut outer, burgundy inset) echoes the real room's dark wood
+   trim over a burgundy accent line, same family as the tile cap stripe. */
+.floor-map-wrap{grid-column:1; grid-row:1; position:relative; aspect-ratio:60/72; border-radius:12px; overflow:hidden;
+  background:var(--floor-cream); border:4px solid var(--floor-wall);
+  box-shadow:inset 0 0 0 2px var(--floor-burgundy), inset 0 0 0 3px var(--floor-cream), inset 0 2px 10px rgba(40,20,10,.18), 0 4px 14px rgba(40,20,10,.22);}
+.floor-map-svg{display:block; width:100%; height:100%;}
+.bp-building{fill:none; stroke:var(--floor-wood); stroke-width:1.3; stroke-linejoin:round;}
+/* The real east wall dividing the dining room from the patio — solid
+   walnut, not just an outline, so it visibly reads as a wall rather than
+   a zone edge; the three gaps left open in FLOOR_WALLS are its real
+   doors (see data.py) and are simply not drawn, i.e. open floor. */
+.bp-wall{fill:var(--floor-wall); stroke:var(--floor-wall-line); stroke-width:.3;}
+.bp-zone{fill:var(--floor-tile); stroke:var(--floor-tile-line); stroke-width:.35;}
+.bp-zone-counter, .bp-zone-podium{fill:#efe0bf;}
+.bp-zone-door{fill:#2e3a2a;}
+.bp-zone-kitchen{fill:#eef1f2;}
+.bp-zone-threshold{fill:var(--floor-tile);}
+.bp-zone-label{font-family:var(--font-body); font-size:1.5px; font-weight:800; fill:#8a6a4a; text-transform:uppercase; letter-spacing:.02em; pointer-events:none;}
+.bp-table{fill:#fffdfa; stroke:var(--floor-wood); stroke-width:.45;}
+.bp-table-target{stroke:var(--success-deep); stroke-width:.8;}
+.bp-table-label{font-family:var(--font-display); font-size:2.7px; font-weight:700; fill:var(--floor-wood); text-anchor:middle; pointer-events:none;}
+.bp-counter{fill:var(--floor-wall);}
+.bp-counter-top{fill:none; stroke:var(--floor-brass); stroke-width:.4;}
+.bp-stool{fill:#fffdfa; stroke:var(--floor-wood); stroke-width:.3;}
+.bp-pass-edge{fill:var(--floor-brass);}
+.bp-podium{fill:var(--floor-wood); stroke:var(--floor-wall-line); stroke-width:.3;}
+.bp-door{fill:#2e3a2a; stroke:var(--floor-burgundy); stroke-width:.4; stroke-dasharray:1.3 1;}
+.floor-trail{fill:none; stroke:var(--accent); stroke-width:.9; stroke-linecap:round; stroke-linejoin:round; opacity:.5;}
+/* The little Folietta server standing in for the old plain dot — see
+   svgCharacterIcon in app.js. White strokes on the head/body keep it
+   legible against whichever floor tone it's standing on. */
+.floor-char-shadow{fill:rgba(20,10,5,.22);}
+.floor-char-hair{fill:var(--floor-wall);}
+.floor-char-body{fill:var(--floor-burgundy); stroke:#fff; stroke-width:.3;}
+.floor-char-button{fill:var(--floor-gold);}
+.floor-char-head{fill:#e8c49a; stroke:#fff; stroke-width:.3;}
+.floor-char-stache{fill:var(--floor-wall);}
+.floor-slider-y-wrap{grid-column:2; grid-row:1; position:relative; display:flex; align-items:center; justify-content:center;}
+.floor-slider-x-wrap{grid-column:1; grid-row:2; display:flex; align-items:center; padding:0 2px;}
+.floor-slider{-webkit-appearance:none; appearance:none; background:transparent; cursor:pointer; margin:0; touch-action:none;}
+.floor-slider-x-wrap .floor-slider{width:100%;}
+/* rotate(90deg), not -90deg: dragging the thumb toward the top of the
+   screen must move the character up the room (smaller y), matching the
+   map's own orientation — the other rotation direction put max-value at
+   the top, which moved the character the opposite way from the drag. */
+.floor-slider-y-wrap .floor-slider{position:absolute; top:50%; left:50%; transform:translate(-50%,-50%) rotate(90deg);}
+.floor-slider::-webkit-slider-runnable-track{height:8px; border-radius:999px; background:var(--bg-sunk); border:1px solid var(--line);}
+.floor-slider::-moz-range-track{height:8px; border-radius:999px; background:var(--bg-sunk); border:1px solid var(--line);}
+.floor-slider::-webkit-slider-thumb{-webkit-appearance:none; appearance:none; width:26px; height:26px; margin-top:-9px; border-radius:50%;
+  background:var(--accent); border:3px solid #fff; box-shadow:0 2px 0 var(--accent-deep);}
+.floor-slider::-moz-range-thumb{width:26px; height:26px; border:3px solid #fff; border-radius:50%; background:var(--accent); box-shadow:0 2px 0 var(--accent-deep);}
+/* Admin-only Layout Editor (see EDITOR_ENABLED in app.js) — the full
+   floor plan at once, no camera crop, with every counter/table draggable.
+   Reuses the same bp-* shape classes as the live map above. */
+.layout-editor-wrap{margin:0 -16px 14px; width:calc(100% + 32px); padding:0 6px;
+  background:var(--floor-cream); border-top:4px solid var(--floor-wall); border-bottom:4px solid var(--floor-wall);}
+.layout-editor-svg{display:block; width:100%; height:auto;}
+.edit-draggable{cursor:grab; touch-action:none;}
+.edit-draggable:active{cursor:grabbing;}
+.edit-draggable:hover{filter:brightness(1.08);}
+.layout-json-box{width:100%; margin-top:10px; font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;
+  font-size:11.5px; line-height:1.4; padding:10px; border-radius:10px; border:2px solid var(--line);
+  background:var(--bg-sunk); color:var(--ink); resize:vertical;}
+.plate-tray{display:flex; flex-direction:column; gap:8px; margin:10px 0;}
+.plate-chip{display:flex; align-items:center; gap:10px; text-align:left; width:100%; padding:10px 13px; border-radius:13px;
+  border:2px solid var(--line); background:var(--bg-elev); cursor:pointer; font-family:var(--font-body); color:var(--ink);
+  box-shadow:0 3px 0 var(--line); transition:transform .08s ease, box-shadow .08s ease;}
+.plate-chip:active{transform:translateY(2px); box-shadow:none;}
+.plate-chip.armed{border-color:var(--gold-deep); background:var(--bg-sunk); box-shadow:0 3px 0 var(--gold-deep);}
+.plate-chip.placed{border-color:var(--success-deep); box-shadow:0 3px 0 var(--success-deep);}
+.plate-chip.static{cursor:default; pointer-events:none; box-shadow:none;}
+.plate-icon{font-size:20px; flex:none;}
+.plate-name{font-weight:700; font-size:13.5px; flex:1;}
+.plate-where{font-size:11px; font-weight:700; color:var(--gold-deep); white-space:nowrap;}
+.plate-where.muted{color:var(--ink-faint); font-weight:600;}
+.table-diagram{margin:16px 0; display:flex; justify-content:center;}
+.counter-row{display:flex; gap:6px; overflow-x:auto; padding:4px; max-width:100%;}
+.seat-slot{flex:none; width:42px; height:42px; border-radius:11px; border:2px solid var(--line); background:var(--bg-elev);
+  display:flex; flex-direction:column; align-items:center; justify-content:center; cursor:pointer; font-family:var(--font-display);
+  font-weight:700; font-size:13px; color:var(--ink); box-shadow:0 3px 0 var(--line); position:relative;}
+.seat-slot:active{transform:translateY(2px); box-shadow:none;}
+.seat-slot.filled{border-color:var(--success-deep); background:var(--success-bg); box-shadow:0 3px 0 var(--success-deep);}
+.seat-plate{font-size:13px; margin-top:-2px;}
+.table-shape{position:relative; width:220px; height:180px; margin:10px auto; max-width:100%;}
+.centre-slot{position:absolute; inset:46px; border:2px dashed var(--line); background:var(--bg-sunk); border-radius:12px; cursor:pointer;
+  display:flex; flex-direction:column; align-items:center; justify-content:center; font-family:var(--font-display); font-weight:700;
+  font-size:11px; color:var(--ink-soft); z-index:1;}
+.centre-slot.filled{background:var(--success-bg); color:var(--success-deep); border-color:var(--success-deep); border-style:solid;}
+.centre-plates{font-size:12px; margin-top:2px;}
+.table-shape .seat-slot{position:absolute; width:46px; height:46px;}
+.two-top .seat-pos-0{left:0; top:67px;}
+.two-top .seat-pos-1{right:0; top:67px;}
+.four-top .seat-pos-0{left:36px; top:0;}
+.four-top .seat-pos-1{right:36px; top:0;}
+.four-top .seat-pos-2{left:0; top:67px;}
+.four-top .seat-pos-3{right:0; top:67px;}
 </style>
 
 </head>
 <body>
 
 <div id="app"></div>
-<script id="menu-data" type="application/json">{"categories": [{"key": "stuzzi", "name": "Stuzzi", "sub": "Small Bites", "color": "#b5652c"}, {"key": "pane", "name": "Pane", "sub": "Bread", "color": "#a68326"}, {"key": "insalate", "name": "Insalate", "sub": "Salads", "color": "#5b7a3a"}, {"key": "antipasti", "name": "Antipasti", "sub": "Starters to Share", "color": "#8c2331"}, {"key": "primi", "name": "Primi", "sub": "House-Made Pasta", "color": "#a91e2c"}, {"key": "tavola", "name": "Per La Tavola", "sub": "Signature Sharing Plates", "color": "#4a2532"}, {"key": "contorni", "name": "Contorni", "sub": "Sides", "color": "#3f6b52"}, {"key": "dolci", "name": "Dolci", "sub": "Dessert", "color": "#5c3a6e"}], "allergens": ["gluten", "dairy", "egg", "fish", "shellfish", "treenut", "mustard"], "allergenLabel": {"gluten": "Gluten", "dairy": "Dairy", "egg": "Egg", "fish": "Fish", "shellfish": "Shellfish (crustacean/mollusc)", "treenut": "Tree Nut", "mustard": "Mustard"}, "items": [{"id": "anchovy-bruschetta", "cat": "stuzzi", "name": "Anchovy Bruschetta", "price": "$4/pc", "desc": "Grilled bread, anchovy, cultured butter", "drop": "", "mise_i": "None", "mise_s": "None", "allergens": ["gluten", "fish", "dairy"], "dietary": [], "facts": ["Anchovy here is both salty and fishy in flavor — a classic Ligurian pairing with butter."]}, {"id": "smoked-olives", "cat": "stuzzi", "name": "Smoked Olives", "price": "$13", "desc": "Castelvetrano olives, hardwood smoked", "drop": "", "mise_i": "None", "mise_s": "None", "allergens": [], "dietary": ["vegetarian"], "facts": ["Castelvetrano olives are from southwestern Sicily; harvested Sept–Oct and cured in a fresh water & lye solution for about two weeks for their buttery, mild flavor."]}, {"id": "parmesan-crocchette", "cat": "stuzzi", "name": "Parmesan Crocchette", "price": "$4/pc", "desc": "Reggiano, prosciutto di Parma", "drop": "", "mise_i": "None", "mise_s": "None", "allergens": ["dairy", "egg"], "dietary": ["pork"], "facts": ["Prosciutto di Parma used here is aged 14 months."]}, {"id": "focaccia", "cat": "pane", "name": "Focaccia", "price": "$12", "desc": "Maldon salt, wild oregano — served with olive oil & 8yr balsamic, or black olive & caper tapenade", "drop": "Made fresh in house every day! Served with your preference", "mise_i": "Fork & Knife", "mise_s": "Tongs", "allergens": ["gluten"], "dietary": ["vegetarian"], "facts": ["Liguria's hallmark bread, dating back to ancient Rome — its simplicity highlights the region's olive oil."]}, {"id": "ricotta-focaccia", "cat": "pane", "name": "Ricotta", "price": "$21", "desc": "Focaccia, fresh ricotta, black truffle, olive oil", "drop": "A versatile cheese from southern Italy, topped with Australian winter truffle and a drizzle of olive oil & honey", "mise_i": "Fork & Knife", "mise_s": "Tongs", "allergens": ["gluten", "dairy"], "dietary": ["vegetarian"], "facts": []}, {"id": "insalata-mista", "cat": "insalate", "name": "Insalata Mista", "price": "$16/22", "desc": "Romaine, arugula, olives, broccoli, pickled peppers, salumi, sharp provolone", "drop": "A balance of fresh arugula, radicchio, tangy giardiniera, savory salumi, and the sharp, creamy bite of provolone.", "mise_i": "Fork & Knife", "mise_s": "Tongs", "allergens": ["dairy", "mustard"], "dietary": ["pork"], "facts": ["A testament to Italy's agrarian roots — seasonal greens with salumi and sharp provolone, typical of southern Italy."]}, {"id": "caprese", "cat": "insalate", "name": "Caprese", "price": "$18/24", "desc": "Vine ripe tomato, buffalo mozzarella, basil, sourdough", "drop": "", "mise_i": "Fork & Knife", "mise_s": "Large Spoon", "allergens": ["gluten", "dairy", "treenut"], "dietary": ["vegetarian"], "facts": ["Basil pesto drizzle is made with pine nuts and Grana Padano."]}, {"id": "kale-caesar", "cat": "insalate", "name": "Kale Caesar", "price": "$14/20", "desc": "Raw & grilled broccoli, Calabrian chili, anchovy dressing, pangrattato", "drop": "Grilled and raw broccoli in a Calabrian chili Caesar dressing with parmesan and pangrattato", "mise_i": "Fork & Knife", "mise_s": "Tongs", "allergens": ["gluten", "dairy", "egg", "fish"], "dietary": [], "facts": ["Uses Hannah Brook brassicas, which rotate based on availability."]}, {"id": "wagyu-carpaccio", "cat": "antipasti", "name": "Wagyu Beef Carpaccio", "price": "$26", "desc": "Mushroom, bagna cauda, smoked egg yolk, Reggiano", "drop": "Thinly sliced wagyu eye of round fillet, umami from smoked egg yolk, and the savory depth of bagna cauda", "mise_i": "Fork & Knife", "mise_s": "Large Fork & Steak Knife", "allergens": ["dairy", "egg", "fish", "mustard"], "dietary": [], "facts": ["Bagna cauda is a warm Piedmontese dipping sauce of olive oil, anchovies and garlic — carpaccio is a Piedmontese classic highlighting raw, high-quality beef."]}, {"id": "mozzarella-sticks", "cat": "antipasti", "name": "Mozzarella Sticks", "price": "$20", "desc": "Marinara, pesto aioli", "drop": "Breaded and fried mozzarella served with our house made pesto aioli", "mise_i": "Tongs", "mise_s": "Tongs", "allergens": ["gluten", "dairy", "egg", "treenut", "mustard"], "dietary": ["vegetarian"], "facts": []}, {"id": "polpo", "cat": "antipasti", "name": "Polpo", "price": "$24", "desc": "Grilled octopus, pesto alla trapanese, almond", "drop": "Grilled octopus with our house made Pesto alla Trapanese.", "mise_i": "Fork & Knife", "mise_s": "Spoon", "allergens": ["shellfish", "treenut"], "dietary": ["alcohol"], "facts": ["Marcona almonds in the pesto are from Spain — fried then roasted."]}, {"id": "burrata", "cat": "antipasti", "name": "Burrata", "price": "$26", "desc": "’Nduja alla vodka, charred focaccia", "drop": "Burrata in a spicy 'nduja butter sauce topped with crispy chilis and a side focaccia", "mise_i": "Spoon, Fork & Knife", "mise_s": "Spoons", "allergens": ["gluten", "dairy"], "dietary": ["pork", "alcohol"], "facts": []}, {"id": "calamaro", "cat": "antipasti", "name": "Calamaro", "price": "$22", "desc": "Humboldt squid, puttanesca, basil", "drop": "Tangy crispy squid on a bed of puttanesca with our house made basil aioli", "mise_i": "Fork & Knife", "mise_s": "Tongs", "allergens": ["shellfish", "fish", "egg", "mustard"], "dietary": [], "facts": ["Squid is coated in a gluten-free flour blend (rice/potato/tapioca starch) rather than wheat flour — a swap worth knowing, though the kitchen isn't a certified gluten-free environment."]}, {"id": "polpette", "cat": "antipasti", "name": "Polpette al Sugo", "price": "$20", "desc": "Veal, pork, beef meatballs, Sunday sugo, focaccia", "drop": "Tender veal, pork, and beef meatballs in rich Sunday sugo.", "mise_i": "Fork & Knife", "mise_s": "Large Spoon", "allergens": ["gluten", "dairy", "egg"], "dietary": ["pork"], "facts": []}, {"id": "spot-prawn-ravioli", "cat": "primi", "name": "Spot Prawn Ravioli", "price": "$32", "desc": "Zeke’s spot prawns, sauce Americaine, chives", "drop": "Zeke’s spot prawn ravioli in sauce Americaine with chives", "mise_i": "Fork & Knife", "mise_s": "Tongs", "allergens": ["shellfish", "dairy", "egg", "gluten"], "dietary": ["alcohol"], "facts": []}, {"id": "tagliatelle", "cat": "primi", "name": "Tagliatelle", "price": "$31", "desc": "Alfredo, mushrooms, Reggiano, truffle", "drop": "House made tagliatelle with a creamy alfredo, wild mushrooms and shaved black truffle.", "mise_i": "Fork & Knife", "mise_s": "Large Spoon", "allergens": ["gluten", "dairy", "egg"], "dietary": ["vegetarian"], "facts": []}, {"id": "trottole-verdi", "cat": "primi", "name": "Trottole Verdi", "price": "$32", "desc": "Slow cooked lamb ragu, ricotta salata, mint", "drop": "Homemade spinach pasta with slow-cooked lamb ragu and Parmigiano Reggiano", "mise_i": "Fork & Knife", "mise_s": "Sharing Spoon", "allergens": ["gluten", "dairy", "fish", "mustard"], "dietary": ["alcohol"], "facts": ["Trottole ('Vesuvio') is a modern Italian pasta shape from Campania, named for its resemblance to the volcano.", "The lamb ragu is built on an anchovy base — easy to miss since the dish reads as all-lamb."]}, {"id": "bucatini-arrabbiata", "cat": "primi", "name": "Bucatini all’Arrabbiata", "price": "$28", "desc": "San Marzano, Calabrian chili, stracciatella", "drop": "Spicy San Marzano tomato sauce topped with creamy Stracciatella cheese.", "mise_i": "Fork & Knife", "mise_s": "Large Spoon", "allergens": ["gluten", "dairy"], "dietary": ["vegetarian"], "facts": ["'Arrabbiata' is Italian for 'angry' — a nod to the sauce's heat."]}, {"id": "rigatoni-meatballs", "cat": "primi", "name": "Rigatoni & Meatballs", "price": "$30", "desc": "Veal, pork & beef meatballs, Sunday Sugo, Reggiano (add Burrata +$12)", "drop": "Handmade rigatoni in our Sunday Sugo, with house made veal, pork and beef meatballs.", "mise_i": "Fork & Knife", "mise_s": "Large Spoon", "allergens": ["gluten", "dairy", "egg"], "dietary": ["pork"], "facts": ["The team's favorite item on the current menu."]}, {"id": "cacio-e-pepe", "cat": "primi", "name": "Radiatore al Cacio e Pepe", "price": "$26", "desc": "Pecorino, whey, freshly cracked Sarawak pepper (upsell: add truffle)", "drop": "Roman classic — creamy and comforting", "mise_i": "Fork & Knife", "mise_s": "Tongs", "allergens": ["gluten", "dairy"], "dietary": ["vegetarian", "garlic-onion-free"], "facts": ["One of the four classic Roman pastas, created by shepherds in the 18th century.", "This is the only garlic- and onion-free pasta on the menu — handy for allium-sensitive guests."]}, {"id": "branzino", "cat": "tavola", "name": "Branzino", "price": "$58", "desc": "Grilled whole, sorrel pesto, charred lemon", "drop": "Whole grilled Mediterranean sea bass with sorrel pesto & charred lemon", "mise_i": "Fork & Knife", "mise_s": "Large Fork & Spoon", "allergens": ["fish", "dairy", "treenut"], "dietary": [], "facts": ["Branzino (European sea bass) is one of the most sustainable Mediterranean seafood choices thanks to successful aquaculture."]}, {"id": "ragu-napoletana", "cat": "tavola", "name": "Ragù alla Napoletana", "price": "$98", "desc": "Pork shank braised in sugo, meatballs, sausage, friarielli, rigatoni", "drop": "Braised pork shank; homemade hot Italian sausage; beef, pork & veal meatballs, rigatoni, friarielli and Parmigiano", "mise_i": "Fork & Steak Knife", "mise_s": "Large Spoon, Large Fork, Tongs (+ steak knife per guest)", "allergens": ["gluten", "dairy", "egg"], "dietary": ["pork", "alcohol"], "facts": []}, {"id": "pollo-parmigiana", "cat": "tavola", "name": "Pollo alla Parmigiana", "price": "$38/58", "desc": "Breaded half or whole chicken, sugo, burrata, basil", "drop": "Breaded Heritage Farms half (or full) chicken in sugo sauce topped with burrata and fresh pulled basil.", "mise_i": "Fork & Steak Knife", "mise_s": "Large Fork & Steak Knife (+ steak knife per guest)", "allergens": ["gluten", "egg", "dairy"], "dietary": ["alcohol"], "facts": []}, {"id": "bistecca", "cat": "tavola", "name": "Bistecca Fiorentina", "price": "$115", "desc": "32oz dry-aged porterhouse, roasted garlic, salmoriglio", "drop": "Dry-aged Porterhouse bone-in with a bright and vibrant salmoriglio sauce.", "mise_i": "Fork & Steak Knife", "mise_s": "Large Fork (+ steak knife per guest)", "allergens": [], "dietary": [], "facts": ["Salmoriglio is a southern Italian condiment of lemon, oil, herbs and garlic — a precursor to chimichurri, popularized by Italian immigrants in South America.", "One of the few menu items with no major listed allergens from the seven priority groups."]}, {"id": "rapini", "cat": "contorni", "name": "Rapini", "price": "$16", "desc": "Grilled rapini, Taleggio fonduto, pangrattato", "drop": "", "mise_i": "Fork & Knife", "mise_s": "Tongs", "allergens": ["gluten", "dairy"], "dietary": ["vegetarian"], "facts": []}, {"id": "patate-novelle", "cat": "contorni", "name": "Patate Novelle", "price": "$16", "desc": "New potato, parsley, beef tallow bagna cauda", "drop": "Twice-cooked new potatoes with bagna cauda and beef tallow", "mise_i": "Fork & Knife", "mise_s": "Large Spoon", "allergens": ["dairy", "fish"], "dietary": [], "facts": ["Bagna cauda (an anchovy-garlic dip from Piedmont) is modernized here with beef tallow — easy to assume this is a vegetarian side, but it isn't."]}, {"id": "brussels-sprout", "cat": "contorni", "name": "Brussels Sprout", "price": "$16", "desc": "Guanciale, black pepper, egg yolk, Pecorino", "drop": "Brussels sprouts tossed in guanciale fat and Pecorino aioli", "mise_i": "Fork & Knife", "mise_s": "", "allergens": ["dairy", "egg", "mustard"], "dietary": ["pork"], "facts": []}, {"id": "terrina-cioccolato", "cat": "dolci", "name": "Terrina al Cioccolato", "price": "$12", "desc": "Dark chocolate terrine, candied hazelnuts, chocolate salami, chocolate gelato", "drop": "Decadent chocolate terrine with crunchy hazelnuts and a hint of salt.", "mise_i": "Dessert spoon", "mise_s": "", "allergens": ["dairy", "egg", "treenut"], "dietary": ["vegetarian", "alcohol"], "facts": ["'Terrine' comes from the French for 'large earthenware pot' — origins trace to the Middle Ages."]}, {"id": "budino-caramello", "cat": "dolci", "name": "Budino al Caramello", "price": "$12", "desc": "Salted caramel pudding, whipped cream, amaretti crumble", "drop": "Salted caramel pudding with house made whipped cream and an amaretti crumble", "mise_i": "Dessert spoon", "mise_s": "", "allergens": ["dairy", "egg", "treenut"], "dietary": ["vegetarian"], "facts": ["'Budino' is simply Italian for pudding."]}, {"id": "torta-di-mele", "cat": "dolci", "name": "Torta Di Mele", "price": "$14", "desc": "Apple cake, cinnamon sugar, ricotta gelato", "drop": "Warm house made apple cake with caramelized apples, ricotta gelato.", "mise_i": "Spoon", "mise_s": "", "allergens": ["gluten", "egg", "dairy"], "dietary": ["vegetarian"], "facts": ["Olive-oil cake base flash-fried to order then coated in cinnamon sugar — built to taste like a warm donut/fritter."]}, {"id": "tiramisu", "cat": "dolci", "name": "Tiramisu", "price": "$14", "desc": "House made lady fingers, espresso, mascarpone crema, dark chocolate", "drop": "Espresso soaked house made lady fingers with mascarpone crema and dark chocolate shards and cocoa powder", "mise_i": "Spoon", "mise_s": "", "allergens": ["gluten", "egg", "dairy"], "dietary": ["vegetarian", "alcohol"], "facts": []}], "scenarios": [{"id": "anniversary", "title": "The Anniversary", "party": "2 guests", "occasion": "First wedding anniversary", "notes": "No dietary restrictions. Not in a rush — they want the full experience. Budget: generous, ~$150–200 for two before wine.", "brief": "Build a multi-course dinner that feels like an occasion: a proper arc from something to start, through to a signature plate.", "minBudget": 150, "maxBudget": 200, "restriction": null, "minCourses": 3}, {"id": "client-dinner", "title": "The Client Dinner", "party": "4 guests", "occasion": "Business dinner, company card", "notes": "One guest is vegetarian. Wants to share plates family-style. Budget isn’t a concern, but the pace matters — nothing should feel rushed or awkward.", "brief": "Build a shareable spread everyone (including the vegetarian) can eat from, with a natural pace for conversation.", "minBudget": 120, "maxBudget": 400, "restriction": "vegetarian", "minCourses": 3}, {"id": "birthday-family", "title": "The Birthday Family", "party": "5 guests (incl. 2 kids)", "occasion": "Grandmother’s birthday", "notes": "Mixed ages, want some familiar, crowd-pleasing dishes alongside something special for the birthday guest. Moderate budget.", "brief": "Build a dinner the whole table can agree on — easy dishes for the kids, something a little special for the guest of honor.", "minBudget": 100, "maxBudget": 220, "restriction": null, "minCourses": 3}, {"id": "before-show", "title": "Before the Show", "party": "2 guests", "occasion": "Pre-theatre, curtain at 7:30", "notes": "Sat down at 6:00 — need to be finished eating within 75 minutes. Still want it to feel like a real dinner, not fast food.", "brief": "Build a dinner that can realistically be fired, cooked, and enjoyed within the time they have.", "minBudget": 60, "maxBudget": 140, "restriction": null, "minCourses": 2}, {"id": "big-celebration", "title": "The Big Celebration", "party": "6 guests", "occasion": "Milestone birthday, drinks-forward table", "notes": "Want to order the Bistecca Fiorentina to share as the centerpiece. High budget, happy to order generously around it.", "brief": "Build a dinner around the Bistecca — what comes before it, and what supports it, so the table doesn’t overload on one course.", "minBudget": 250, "maxBudget": 600, "restriction": null, "minCourses": 3, "mustInclude": "bistecca"}, {"id": "solo-bar", "title": "Solo at the Bar", "party": "1 guest", "occasion": "Dining alone, weeknight", "notes": "Wants a satisfying but light meal with a glass of wine. Budget-conscious — keep it around $45–60 total.", "brief": "Build a one-person dinner that doesn’t feel like leftovers of a bigger meal — complete on its own.", "minBudget": 35, "maxBudget": 65, "restriction": null, "minCourses": 2}, {"id": "shellfish-allergy", "title": "The Shellfish Allergy", "party": "2 guests", "occasion": "Casual weeknight dinner", "notes": "One guest has a shellfish allergy — no prawns, squid, or octopus. Pasta-forward, moderate budget.", "brief": "Build a dinner that keeps both guests eating the same courses safely, without either feeling like an afterthought.", "minBudget": 70, "maxBudget": 160, "restriction": "shellfish", "minCourses": 2}, {"id": "all-vegetarian", "title": "All Vegetarian", "party": "3 guests", "occasion": "Friends catching up", "notes": "All three guests are vegetarian. They still want a full, multi-course dinner — not just a salad and a side.", "brief": "Build a complete vegetarian dinner arc using only vegetarian items on the menu.", "minBudget": 90, "maxBudget": 220, "restriction": "vegetarian", "minCourses": 3}], "roster": [{"name": "Adiya Z", "pin": "1004"}, {"name": "Alea A", "pin": "4000"}, {"name": "Allyson C", "pin": "5187"}, {"name": "Amanda M", "pin": "3182"}, {"name": "Anastasiia B", "pin": "6945"}, {"name": "Andrejs S", "pin": "1973"}, {"name": "Charlotte C", "pin": "5366"}, {"name": "Chaya M", "pin": "1661"}, {"name": "Christopher F", "pin": "0030"}, {"name": "Christopher Z", "pin": "1594"}, {"name": "Dylan R", "pin": "4563"}, {"name": "Elliott P", "pin": "8119"}, {"name": "Erenee K", "pin": "5148"}, {"name": "Farah S", "pin": "4119"}, {"name": "Fen R", "pin": "6261"}, {"name": "Gabriel P", "pin": "6844"}, {"name": "Gabriela M", "pin": "4811"}, {"name": "Grazia C", "pin": "2831"}, {"name": "Hayley J", "pin": "8332"}, {"name": "Hope G", "pin": "9529"}, {"name": "Isaiah K", "pin": "7495"}, {"name": "Jas B", "pin": "0909"}, {"name": "Jonathon H", "pin": "8054"}, {"name": "Jose G", "pin": "0757"}, {"name": "Katya M", "pin": "6723"}, {"name": "Laura S", "pin": "8334"}, {"name": "Leyla C", "pin": "8040"}, {"name": "Lilia G", "pin": "4143"}, {"name": "Lola S", "pin": "1871"}, {"name": "Lucia P", "pin": "5960"}, {"name": "Manola S", "pin": "7889"}, {"name": "Maria Flavia C", "pin": "9753"}, {"name": "Navy K", "pin": "5648"}, {"name": "Nhicksha R", "pin": "3783"}, {"name": "Nicole P", "pin": "3069"}, {"name": "Nikolas J", "pin": "1345"}, {"name": "Olivia D", "pin": "8417"}, {"name": "Ryan W", "pin": "7308"}, {"name": "Sophie C", "pin": "6690"}, {"name": "Stella Q", "pin": "0028"}, {"name": "Tiernan W", "pin": "1054"}, {"name": "Zanib B", "pin": "6148"}, {"name": "Zoe S", "pin": "3080"}], "manager": {"email": "jonathon@folietta.com", "phone": ""}, "quizCategories": [{"key": "menu", "name": "Menu & Dishes", "sub": "Current Fall 2026 dinner menu"}, {"key": "service", "name": "Service & Guest Experience", "sub": "FOH procedures & guest scenarios"}, {"key": "host", "name": "Restaurant & Host Facts", "sub": "Logistics, booking & restaurant info"}, {"key": "bar", "name": "Cocktails, Amaro & Wine", "sub": "Bar program trivia"}], "questionBank": [{"category": "menu", "prompt": "Smoked Olives are Castelvetrano olives from which Italian region?", "options": ["Sicily", "Tuscany", "Piedmont", "Puglia"], "correctAnswer": "Sicily"}, {"category": "menu", "prompt": "True or False — Castelvetrano olives are cured in a fresh water and lye solution for about two weeks before they're smoked and served.", "options": ["True", "False"], "correctAnswer": "True"}, {"category": "menu", "prompt": "Focaccia is closely associated with which Italian region, with roots dating back to ancient Rome?", "options": ["Liguria", "Tuscany", "Sicily", "Piedmont"], "correctAnswer": "Liguria"}, {"category": "menu", "prompt": "Which dish's fun fact calls it \"a testament to Italy's agrarian roots\"?", "options": ["Insalata Mista", "Caprese", "Kale Caesar", "Rapini"], "correctAnswer": "Insalata Mista"}, {"category": "menu", "prompt": "The Wagyu Beef Carpaccio is a nod to a classic preparation from which region, served with a warm bagna cauda-style dip?", "options": ["Piedmont", "Tuscany", "Lazio", "Campania"], "correctAnswer": "Piedmont"}, {"category": "menu", "prompt": "Which dessert's name comes from the French word for \"a large earthenware pot\"?", "options": ["Terrina al Cioccolato", "Budino al Caramello", "Torta Di Mele", "Tiramisu"], "correctAnswer": "Terrina al Cioccolato"}, {"category": "menu", "prompt": "What does \"Budino\" mean in Italian?", "options": ["Pudding", "Little cake", "Sweet bread", "Caramel sauce"], "correctAnswer": "Pudding"}, {"category": "menu", "prompt": "Which Primi dish's name literally means \"angry,\" referring to the heat of its sauce?", "options": ["Bucatini all’Arrabbiata", "Radiatore al Cacio e Pepe", "Trottole Verdi", "Rigatoni & Meatballs"], "correctAnswer": "Bucatini all’Arrabbiata"}, {"category": "menu", "prompt": "Radiatore al Cacio e Pepe is notable on our menu for being:", "options": ["Our only garlic- and onion-free pasta", "Our spiciest pasta", "Our only vegan pasta", "Our only seafood pasta"], "correctAnswer": "Our only garlic- and onion-free pasta"}, {"category": "menu", "prompt": "True or False — Radiatore al Cacio e Pepe's sauce is built in part with whey.", "options": ["True", "False"], "correctAnswer": "True"}, {"category": "menu", "prompt": "Branzino is highlighted on our menu, in part, for being:", "options": ["One of the most sustainable Mediterranean seafood choices thanks to successful aquaculture", "The rarest fish we serve", "Wild-caught only", "The spiciest preparation on the menu"], "correctAnswer": "One of the most sustainable Mediterranean seafood choices thanks to successful aquaculture"}, {"category": "menu", "prompt": "Patate Novelle's bagna cauda is modernized with which addition?", "options": ["Beef tallow", "Truffle", "Nduja", "Saffron"], "correctAnswer": "Beef tallow"}, {"category": "menu", "prompt": "The Bistecca Fiorentina's salmoriglio is considered a precursor to which other sauce, popularized by Italian immigrants in South America?", "options": ["Chimichurri", "Pesto", "Salsa verde", "Romesco"], "correctAnswer": "Chimichurri"}, {"category": "menu", "prompt": "Trottole Verdi's pasta shape is nicknamed after which famous landmark, which it resembles?", "options": ["Mount Vesuvius", "The Colosseum", "The Trevi Fountain", "Mount Etna"], "correctAnswer": "Mount Vesuvius"}, {"category": "menu", "prompt": "True or False — Calamaro is coated in a gluten-free flour blend (rice, potato, and tapioca starch) rather than wheat flour.", "options": ["True", "False"], "correctAnswer": "True"}, {"category": "menu", "prompt": "Parmesan Crocchette are garnished with Prosciutto di Parma, aged for how long?", "options": ["14 months", "6 months", "24 months", "36 months"], "correctAnswer": "14 months"}, {"category": "menu", "prompt": "Which classic Roman pasta on our menu was reportedly created by 18th-century shepherds?", "options": ["Radiatore al Cacio e Pepe", "Bucatini all’Arrabbiata", "Trottole Verdi", "Tagliatelle"], "correctAnswer": "Radiatore al Cacio e Pepe"}, {"category": "menu", "prompt": "True or False — Torta Di Mele is served cold, straight from the fridge.", "options": ["True", "False"], "correctAnswer": "False"}, {"category": "service", "prompt": "How many rings should you aim to answer the phone within?", "options": ["Within the first 2-3 rings", "After 5 rings", "As soon as convenient", "It doesn't matter as long as you answer"], "correctAnswer": "Within the first 2-3 rings"}, {"category": "service", "prompt": "A party's table isn't ready when they arrive for their reservation. What's the right approach?", "options": ["Be honest about the table's status, share your game plan, and offer them a drink while they wait", "Ask them to come back later", "Seat them at an unprepared table", "Say nothing and hope it resolves itself"], "correctAnswer": "Be honest about the table's status, share your game plan, and offer them a drink while they wait"}, {"category": "service", "prompt": "True or False — you're allowed to ask a guest with a service animal for documentation or certification.", "options": ["True", "False"], "correctAnswer": "False"}, {"category": "service", "prompt": "A guest asks a menu or allergen question you're not sure about. What's the right response?", "options": ["Let them know you'll double-check with a manager to be sure", "Give your best guess", "Say it's probably fine", "Tell them you don't know and move on"], "correctAnswer": "Let them know you'll double-check with a manager to be sure"}, {"category": "service", "prompt": "From which side do you drop food, and from which side do you clear dirty dishes?", "options": ["Drop from the left, clear from the right", "Drop from the right, clear from the left", "Both from the left", "Both from the right"], "correctAnswer": "Drop from the left, clear from the right"}, {"category": "service", "prompt": "At what point in service does it become necessary to use a tray?", "options": ["The moment you need to carry or clear more than one glass", "Only when carrying food", "Never", "Only during brunch"], "correctAnswer": "The moment you need to carry or clear more than one glass"}, {"category": "service", "prompt": "A guest expresses dissatisfaction on their way out. What's your first move?", "options": ["Apologize sincerely and offer to grab a manager", "Say nothing and let them leave", "Defend the restaurant's choices", "Offer a refund immediately without listening"], "correctAnswer": "Apologize sincerely and offer to grab a manager"}, {"category": "service", "prompt": "What's the correct protocol before offering a guest an NCI (no-charge item)?", "options": ["Always ask a manager first", "Just ring it in", "Only tell the kitchen", "Ask the guest what they'd like for free"], "correctAnswer": "Always ask a manager first"}, {"category": "service", "prompt": "True or False — upselling should happen on every table, regardless of guest preference, purely to raise average cheque.", "options": ["True", "False"], "correctAnswer": "False"}, {"category": "service", "prompt": "How often should washroom checks happen during service?", "options": ["Every hour", "Once per shift", "Every 15 minutes", "Only if a guest complains"], "correctAnswer": "Every hour"}, {"category": "service", "prompt": "How far before your scheduled shift should you be ready on the floor?", "options": ["5-15 minutes early, with notepad and pen ready", "Right at your start time", "An hour early", "Whenever you arrive"], "correctAnswer": "5-15 minutes early, with notepad and pen ready"}, {"category": "service", "prompt": "A guest buys you a drink or shot during your shift. What's the protocol?", "options": ["Thank them, let an MOD know it's been added to your bill, and enjoy it responsibly after your shift", "Drink it immediately", "Decline and ignore it", "Ask for cash instead"], "correctAnswer": "Thank them, let an MOD know it's been added to your bill, and enjoy it responsibly after your shift"}, {"category": "service", "prompt": "You accidentally drop and break a glass while clearing a table. What's your first priority?", "options": ["Make sure no one's been injured", "Clean it up as fast as possible", "Figure out who's responsible", "Keep serving and clean later"], "correctAnswer": "Make sure no one's been injured"}, {"category": "service", "prompt": "What's the right way to handle a reservation that's running late?", "options": ["Text at 5 minutes late, call after 10 minutes late, release the table around 15 minutes late", "Release the table immediately", "Hold it indefinitely with no contact", "Only call once, right at the reservation time"], "correctAnswer": "Text at 5 minutes late, call after 10 minutes late, release the table around 15 minutes late"}, {"category": "service", "prompt": "Which best describes Folietta's \"La Dolce Vita\" approach to service?", "options": ["Move with efficiency, but never rush guests or make them feel pressured to leave", "Turn tables as fast as possible", "Let guests linger with no attention at all", "It only applies at brunch"], "correctAnswer": "Move with efficiency, but never rush guests or make them feel pressured to leave"}, {"category": "service", "prompt": "True or False — a Server Assistant's top priorities include supporting servers, anticipating guest needs, and running food.", "options": ["True", "False"], "correctAnswer": "True"}, {"category": "service", "prompt": "During a busy service, what should you do before speaking to the kitchen?", "options": ["Check in with your MOD first, and use a respectful cue like \"May I speak?\"", "Interrupt immediately with your question", "Wait until after the shift ends", "Only ever speak through another server"], "correctAnswer": "Check in with your MOD first, and use a respectful cue like \"May I speak?\""}, {"category": "service", "prompt": "A guest wants to sit at a table that's reserved for a larger party arriving soon. What's the right approach?", "options": ["Explain the table is reserved and offer to show them another great option", "Seat them there anyway", "Tell them no without any explanation", "Ignore the request and walk away"], "correctAnswer": "Explain the table is reserved and offer to show them another great option"}, {"category": "service", "prompt": "When opening a bottle of wine, what's the correct first step?", "options": ["Present the bottle to the guest who ordered it, naming it, the varietal, and the year", "Pour everyone immediately", "Decant it without asking", "Pour the guest who ordered it last, without a taste first"], "correctAnswer": "Present the bottle to the guest who ordered it, naming it, the varietal, and the year"}, {"category": "service", "prompt": "Once service has started, when is it appropriate to top up a guest's wine?", "options": ["Anytime it's needed, using a clean cloth napkin as you pour", "Never without being asked", "Only once the bottle is nearly empty", "Only at the very end of the meal"], "correctAnswer": "Anytime it's needed, using a clean cloth napkin as you pour"}, {"category": "service", "prompt": "True or False — your section is priority one, but helping other sections and running food you see sitting in the window is still part of the job.", "options": ["True", "False"], "correctAnswer": "True"}, {"category": "service", "prompt": "Once you've been cut by your MOD for the night, what should you do first?", "options": ["Complete your side duties and fully debrief whoever is taking over your tables", "Leave the floor immediately", "Only tell the next server if they happen to ask", "Skip your side duties if you're tired"], "correctAnswer": "Complete your side duties and fully debrief whoever is taking over your tables"}, {"category": "host", "prompt": "What is Folietta's phone number?", "options": ["604-253-4021", "604-325-4012", "604-253-4012", "604-523-4021"], "correctAnswer": "604-253-4021"}, {"category": "host", "prompt": "What is Folietta's website?", "options": ["folietta.com", "foglietta.com", "eatfolietta.com", "folietta.ca"], "correctAnswer": "folietta.com"}, {"category": "host", "prompt": "Where does the name \"Folietta\" come from?", "options": ["From \"foglietta,\" the Italian word for greenery — a nod to the Grandview-Woodland neighbourhood", "It's the chef's surname", "It means \"little leaf,\" with no neighbourhood connection", "It's named after a dish"], "correctAnswer": "From \"foglietta,\" the Italian word for greenery — a nod to the Grandview-Woodland neighbourhood"}, {"category": "host", "prompt": "What is Folietta's mission?", "options": ["Turning guests into regulars by delivering outstanding food, beverage & service", "To be the fastest table turnover in the city", "To be a regulars-only restaurant", "To focus purely on takeout"], "correctAnswer": "Turning guests into regulars by delivering outstanding food, beverage & service"}, {"category": "host", "prompt": "What social media platforms is Folietta active on?", "options": ["Instagram and Facebook", "TikTok and Twitter", "Only Instagram", "Pinterest and Instagram"], "correctAnswer": "Instagram and Facebook"}, {"category": "host", "prompt": "What is Folietta's total seating capacity, including the patio?", "options": ["130 seats plus a 30-seat patio", "80 seats total", "200 seats total", "50 seats total"], "correctAnswer": "130 seats plus a 30-seat patio"}, {"category": "host", "prompt": "How many guests can Folietta's private dining room seat?", "options": ["Up to 16", "Up to 8", "Up to 30", "Up to 50"], "correctAnswer": "Up to 16"}, {"category": "host", "prompt": "If a guest wants to book a group of 8 or more, what's the protocol?", "options": ["Defer to a manager, who contacts the guest directly", "Book it yourself right away", "Tell them we don't take groups", "Ask them to call back later"], "correctAnswer": "Defer to a manager, who contacts the guest directly"}, {"category": "host", "prompt": "What information should you take when adding a guest to the waitlist?", "options": ["First and last name, phone number, and seating preference — then under-promise and over-deliver on wait times", "Just a first name", "A deposit", "Nothing — just add them to the list"], "correctAnswer": "First and last name, phone number, and seating preference — then under-promise and over-deliver on wait times"}, {"category": "host", "prompt": "True or False — Folietta currently offers electronic gift cards.", "options": ["True", "False"], "correctAnswer": "False"}, {"category": "host", "prompt": "Which broader restaurant group does Folietta belong to, and what company owns it?", "options": ["Wentworth Hospitality Group, owned by Amacon", "An independent single restaurant", "A franchise of a US chain", "Part of a hotel group only"], "correctAnswer": "Wentworth Hospitality Group, owned by Amacon"}, {"category": "host", "prompt": "Which of these are Folietta's sister restaurants within the Wentworth Hospitality Group?", "options": ["Homer St Cafe and Bar, Maxine's Cafe and Bar, and Tableau Bar Bistro", "The Keg and Cactus Club", "Only Homer St Cafe and Bar", "Earls and Joey Restaurant Group"], "correctAnswer": "Homer St Cafe and Bar, Maxine's Cafe and Bar, and Tableau Bar Bistro"}, {"category": "host", "prompt": "What email is used for private dining room bookings?", "options": ["ciao@folietta.com", "info@folietta.com", "events@folietta.com", "reservations@folietta.com"], "correctAnswer": "ciao@folietta.com"}, {"category": "host", "prompt": "Beyond the order itself, what should you gather when taking a to-go order?", "options": ["Guest name, phone number, pickup time, and any allergies or special requests", "Just a name", "Just a phone number", "Nothing beyond the order"], "correctAnswer": "Guest name, phone number, pickup time, and any allergies or special requests"}, {"category": "host", "prompt": "What's the correct way to read a chit?", "options": ["Note the dish and modifications, table and seat numbers, cross off as you go, and stab the chit when done", "Just glance at the dish name", "Read it out loud to the kitchen", "File it away for later"], "correctAnswer": "Note the dish and modifications, table and seat numbers, cross off as you go, and stab the chit when done"}, {"category": "host", "prompt": "Are servers and SAs allowed to go behind the bar or step onto the kitchen line without permission?", "options": ["No — never without an MOD or chef's permission", "Yes, anytime", "Only during slow periods", "Only to grab food"], "correctAnswer": "No — never without an MOD or chef's permission"}, {"category": "bar", "prompt": "What is grappa?", "options": ["A grape distillate made from the leftover skins, stems, and seeds of winemaking", "A clear potato spirit", "A herbal liqueur", "A sparkling wine"], "correctAnswer": "A grape distillate made from the leftover skins, stems, and seeds of winemaking"}, {"category": "bar", "prompt": "What is amaro?", "options": ["A distilled spirit (or wine) infused with bittering botanicals like bark, herbs, and flowers", "A sweet dessert wine", "A type of Italian beer", "A coffee liqueur"], "correctAnswer": "A distilled spirit (or wine) infused with bittering botanicals like bark, herbs, and flowers"}, {"category": "bar", "prompt": "True or False — amaro can only legally be made in Italy.", "options": ["True", "False"], "correctAnswer": "False"}, {"category": "bar", "prompt": "What's the difference between an aperitivo and a digestivo?", "options": ["Aperitivo is enjoyed before a meal to stimulate the appetite; digestivo after, to aid digestion", "They're the same thing", "Aperitivo is always non-alcoholic", "Digestivo is only for dessert pairings"], "correctAnswer": "Aperitivo is enjoyed before a meal to stimulate the appetite; digestivo after, to aid digestion"}, {"category": "bar", "prompt": "Which botanical must be present for an aromatized wine to be classified as vermouth?", "options": ["Wormwood", "Juniper", "Gentian", "Saffron"], "correctAnswer": "Wormwood"}, {"category": "bar", "prompt": "True or False — vermouth is most commonly made with a white wine base.", "options": ["True", "False"], "correctAnswer": "True"}, {"category": "bar", "prompt": "What region of Italy must Vermouth di Torino be made in?", "options": ["Piedmont", "Tuscany", "Veneto", "Sicily"], "correctAnswer": "Piedmont"}, {"category": "bar", "prompt": "How would you describe Fernet Branca to a curious guest?", "options": ["Medicinal, bitter, with a strong menthol note", "Sweet and fruity", "Light and floral", "Smoky, like a whisky"], "correctAnswer": "Medicinal, bitter, with a strong menthol note"}, {"category": "bar", "prompt": "What goes into our Bloody Mary (Maria Sangue)?", "options": ["Vodka, tomato juice, Bomba, balsamic vinegar, and lime juice", "Vodka, clam juice, and celery salt only", "Gin, tomato juice, and horseradish", "Vodka, V8, and hot sauce only"], "correctAnswer": "Vodka, tomato juice, Bomba, balsamic vinegar, and lime juice"}, {"category": "bar", "prompt": "Compared to an Espresso Martini, the Amore Amaro is:", "options": ["More complex, with more bitterness and richness", "Sweeter and lighter", "Identical in flavor", "Served without any coffee element"], "correctAnswer": "More complex, with more bitterness and richness"}, {"category": "bar", "prompt": "True or False — a White Negroni is typically lighter and more delicate than a classic Negroni, with the bitterness dialed back.", "options": ["True", "False"], "correctAnswer": "True"}, {"category": "bar", "prompt": "If a guest wants to change an ingredient or reduce the pour in one of Folietta's signature cocktails, what's the right approach?", "options": ["Politely explain the cocktail is curated as-is and recommend something else that fits what they're after", "Always accommodate any change", "Refuse to serve them anything", "Make the drink exactly as asked with no comment"], "correctAnswer": "Politely explain the cocktail is curated as-is and recommend something else that fits what they're after"}]}</script>
+<script id="menu-data" type="application/json">{"categories": [{"key": "stuzzi", "name": "Stuzzi", "sub": "Small Bites", "color": "#b5652c"}, {"key": "pane", "name": "Pane", "sub": "Bread", "color": "#a68326"}, {"key": "insalate", "name": "Insalate", "sub": "Salads", "color": "#5b7a3a"}, {"key": "antipasti", "name": "Antipasti", "sub": "Starters to Share", "color": "#8c2331"}, {"key": "primi", "name": "Primi", "sub": "House-Made Pasta", "color": "#a91e2c"}, {"key": "tavola", "name": "Per La Tavola", "sub": "Signature Sharing Plates", "color": "#4a2532"}, {"key": "contorni", "name": "Contorni", "sub": "Sides", "color": "#3f6b52"}, {"key": "dolci", "name": "Dolci", "sub": "Dessert", "color": "#5c3a6e"}], "allergens": ["gluten", "dairy", "egg", "fish", "shellfish", "treenut", "mustard"], "allergenLabel": {"gluten": "Gluten", "dairy": "Dairy", "egg": "Egg", "fish": "Fish", "shellfish": "Shellfish (crustacean/mollusc)", "treenut": "Tree Nut", "mustard": "Mustard"}, "items": [{"id": "anchovy-bruschetta", "cat": "stuzzi", "name": "Anchovy Bruschetta", "price": "$4/pc", "desc": "Grilled bread, anchovy, cultured butter", "drop": "", "mise_i": "None", "mise_s": "None", "allergens": ["gluten", "fish", "dairy"], "dietary": [], "facts": ["Anchovy here is both salty and fishy in flavor — a classic Ligurian pairing with butter."]}, {"id": "smoked-olives", "cat": "stuzzi", "name": "Smoked Olives", "price": "$13", "desc": "Castelvetrano olives, hardwood smoked", "drop": "", "mise_i": "None", "mise_s": "None", "allergens": [], "dietary": ["vegetarian"], "facts": ["Castelvetrano olives are from southwestern Sicily; harvested Sept–Oct and cured in a fresh water & lye solution for about two weeks for their buttery, mild flavor."]}, {"id": "parmesan-crocchette", "cat": "stuzzi", "name": "Parmesan Crocchette", "price": "$4/pc", "desc": "Reggiano, prosciutto di Parma", "drop": "", "mise_i": "None", "mise_s": "None", "allergens": ["dairy", "egg"], "dietary": ["pork"], "facts": ["Prosciutto di Parma used here is aged 14 months."]}, {"id": "focaccia", "cat": "pane", "name": "Focaccia", "price": "$12", "desc": "Maldon salt, wild oregano — served with olive oil & 8yr balsamic, or black olive & caper tapenade", "drop": "Made fresh in house every day! Served with your preference", "mise_i": "Fork & Knife", "mise_s": "Tongs", "allergens": ["gluten"], "dietary": ["vegetarian"], "facts": ["Liguria's hallmark bread, dating back to ancient Rome — its simplicity highlights the region's olive oil."]}, {"id": "ricotta-focaccia", "cat": "pane", "name": "Ricotta", "price": "$21", "desc": "Focaccia, fresh ricotta, black truffle, olive oil", "drop": "A versatile cheese from southern Italy, topped with Australian winter truffle and a drizzle of olive oil & honey", "mise_i": "Fork & Knife", "mise_s": "Tongs", "allergens": ["gluten", "dairy"], "dietary": ["vegetarian"], "facts": []}, {"id": "insalata-mista", "cat": "insalate", "name": "Insalata Mista", "price": "$16/22", "desc": "Romaine, arugula, olives, broccoli, pickled peppers, salumi, sharp provolone", "drop": "A balance of fresh arugula, radicchio, tangy giardiniera, savory salumi, and the sharp, creamy bite of provolone.", "mise_i": "Fork & Knife", "mise_s": "Tongs", "allergens": ["dairy", "mustard"], "dietary": ["pork"], "facts": ["A testament to Italy's agrarian roots — seasonal greens with salumi and sharp provolone, typical of southern Italy."]}, {"id": "caprese", "cat": "insalate", "name": "Caprese", "price": "$18/24", "desc": "Vine ripe tomato, buffalo mozzarella, basil, sourdough", "drop": "", "mise_i": "Fork & Knife", "mise_s": "Large Spoon", "allergens": ["gluten", "dairy", "treenut"], "dietary": ["vegetarian"], "facts": ["Basil pesto drizzle is made with pine nuts and Grana Padano."]}, {"id": "kale-caesar", "cat": "insalate", "name": "Kale Caesar", "price": "$14/20", "desc": "Raw & grilled broccoli, Calabrian chili, anchovy dressing, pangrattato", "drop": "Grilled and raw broccoli in a Calabrian chili Caesar dressing with parmesan and pangrattato", "mise_i": "Fork & Knife", "mise_s": "Tongs", "allergens": ["gluten", "dairy", "egg", "fish"], "dietary": [], "facts": ["Uses Hannah Brook brassicas, which rotate based on availability."]}, {"id": "wagyu-carpaccio", "cat": "antipasti", "name": "Wagyu Beef Carpaccio", "price": "$26", "desc": "Mushroom, bagna cauda, smoked egg yolk, Reggiano", "drop": "Thinly sliced wagyu eye of round fillet, umami from smoked egg yolk, and the savory depth of bagna cauda", "mise_i": "Fork & Knife", "mise_s": "Large Fork & Steak Knife", "allergens": ["dairy", "egg", "fish", "mustard"], "dietary": [], "facts": ["Bagna cauda is a warm Piedmontese dipping sauce of olive oil, anchovies and garlic — carpaccio is a Piedmontese classic highlighting raw, high-quality beef."]}, {"id": "mozzarella-sticks", "cat": "antipasti", "name": "Mozzarella Sticks", "price": "$20", "desc": "Marinara, pesto aioli", "drop": "Breaded and fried mozzarella served with our house made pesto aioli", "mise_i": "Tongs", "mise_s": "Tongs", "allergens": ["gluten", "dairy", "egg", "treenut", "mustard"], "dietary": ["vegetarian"], "facts": []}, {"id": "polpo", "cat": "antipasti", "name": "Polpo", "price": "$24", "desc": "Grilled octopus, pesto alla trapanese, almond", "drop": "Grilled octopus with our house made Pesto alla Trapanese.", "mise_i": "Fork & Knife", "mise_s": "Spoon", "allergens": ["shellfish", "treenut"], "dietary": ["alcohol"], "facts": ["Marcona almonds in the pesto are from Spain — fried then roasted."]}, {"id": "burrata", "cat": "antipasti", "name": "Burrata", "price": "$26", "desc": "’Nduja alla vodka, charred focaccia", "drop": "Burrata in a spicy 'nduja butter sauce topped with crispy chilis and a side focaccia", "mise_i": "Spoon, Fork & Knife", "mise_s": "Spoons", "allergens": ["gluten", "dairy"], "dietary": ["pork", "alcohol"], "facts": []}, {"id": "calamaro", "cat": "antipasti", "name": "Calamaro", "price": "$22", "desc": "Humboldt squid, puttanesca, basil", "drop": "Tangy crispy squid on a bed of puttanesca with our house made basil aioli", "mise_i": "Fork & Knife", "mise_s": "Tongs", "allergens": ["shellfish", "fish", "egg", "mustard"], "dietary": [], "facts": ["Squid is coated in a gluten-free flour blend (rice/potato/tapioca starch) rather than wheat flour — a swap worth knowing, though the kitchen isn't a certified gluten-free environment."]}, {"id": "polpette", "cat": "antipasti", "name": "Polpette al Sugo", "price": "$20", "desc": "Veal, pork, beef meatballs, Sunday sugo, focaccia", "drop": "Tender veal, pork, and beef meatballs in rich Sunday sugo.", "mise_i": "Fork & Knife", "mise_s": "Large Spoon", "allergens": ["gluten", "dairy", "egg"], "dietary": ["pork"], "facts": []}, {"id": "spot-prawn-ravioli", "cat": "primi", "name": "Spot Prawn Ravioli", "price": "$32", "desc": "Zeke’s spot prawns, sauce Americaine, chives", "drop": "Zeke’s spot prawn ravioli in sauce Americaine with chives", "mise_i": "Fork & Knife", "mise_s": "Tongs", "allergens": ["shellfish", "dairy", "egg", "gluten"], "dietary": ["alcohol"], "facts": []}, {"id": "tagliatelle", "cat": "primi", "name": "Tagliatelle", "price": "$31", "desc": "Alfredo, mushrooms, Reggiano, truffle", "drop": "House made tagliatelle with a creamy alfredo, wild mushrooms and shaved black truffle.", "mise_i": "Fork & Knife", "mise_s": "Large Spoon", "allergens": ["gluten", "dairy", "egg"], "dietary": ["vegetarian"], "facts": []}, {"id": "trottole-verdi", "cat": "primi", "name": "Trottole Verdi", "price": "$32", "desc": "Slow cooked lamb ragu, ricotta salata, mint", "drop": "Homemade spinach pasta with slow-cooked lamb ragu and Parmigiano Reggiano", "mise_i": "Fork & Knife", "mise_s": "Sharing Spoon", "allergens": ["gluten", "dairy", "fish", "mustard"], "dietary": ["alcohol"], "facts": ["Trottole ('Vesuvio') is a modern Italian pasta shape from Campania, named for its resemblance to the volcano.", "The lamb ragu is built on an anchovy base — easy to miss since the dish reads as all-lamb."]}, {"id": "bucatini-arrabbiata", "cat": "primi", "name": "Bucatini all’Arrabbiata", "price": "$28", "desc": "San Marzano, Calabrian chili, stracciatella", "drop": "Spicy San Marzano tomato sauce topped with creamy Stracciatella cheese.", "mise_i": "Fork & Knife", "mise_s": "Large Spoon", "allergens": ["gluten", "dairy"], "dietary": ["vegetarian"], "facts": ["'Arrabbiata' is Italian for 'angry' — a nod to the sauce's heat."]}, {"id": "rigatoni-meatballs", "cat": "primi", "name": "Rigatoni & Meatballs", "price": "$30", "desc": "Veal, pork & beef meatballs, Sunday Sugo, Reggiano (add Burrata +$12)", "drop": "Handmade rigatoni in our Sunday Sugo, with house made veal, pork and beef meatballs.", "mise_i": "Fork & Knife", "mise_s": "Large Spoon", "allergens": ["gluten", "dairy", "egg"], "dietary": ["pork"], "facts": ["The team's favorite item on the current menu."]}, {"id": "cacio-e-pepe", "cat": "primi", "name": "Radiatore al Cacio e Pepe", "price": "$26", "desc": "Pecorino, whey, freshly cracked Sarawak pepper (upsell: add truffle)", "drop": "Roman classic — creamy and comforting", "mise_i": "Fork & Knife", "mise_s": "Tongs", "allergens": ["gluten", "dairy"], "dietary": ["vegetarian", "garlic-onion-free"], "facts": ["One of the four classic Roman pastas, created by shepherds in the 18th century.", "This is the only garlic- and onion-free pasta on the menu — handy for allium-sensitive guests."]}, {"id": "branzino", "cat": "tavola", "name": "Branzino", "price": "$58", "desc": "Grilled whole, sorrel pesto, charred lemon", "drop": "Whole grilled Mediterranean sea bass with sorrel pesto & charred lemon", "mise_i": "Fork & Knife", "mise_s": "Large Fork & Spoon", "allergens": ["fish", "dairy", "treenut"], "dietary": [], "facts": ["Branzino (European sea bass) is one of the most sustainable Mediterranean seafood choices thanks to successful aquaculture."]}, {"id": "ragu-napoletana", "cat": "tavola", "name": "Ragù alla Napoletana", "price": "$98", "desc": "Pork shank braised in sugo, meatballs, sausage, friarielli, rigatoni", "drop": "Braised pork shank; homemade hot Italian sausage; beef, pork & veal meatballs, rigatoni, friarielli and Parmigiano", "mise_i": "Fork & Steak Knife", "mise_s": "Large Spoon, Large Fork, Tongs (+ steak knife per guest)", "allergens": ["gluten", "dairy", "egg"], "dietary": ["pork", "alcohol"], "facts": []}, {"id": "pollo-parmigiana", "cat": "tavola", "name": "Pollo alla Parmigiana", "price": "$38/58", "desc": "Breaded half or whole chicken, sugo, burrata, basil", "drop": "Breaded Heritage Farms half (or full) chicken in sugo sauce topped with burrata and fresh pulled basil.", "mise_i": "Fork & Steak Knife", "mise_s": "Large Fork & Steak Knife (+ steak knife per guest)", "allergens": ["gluten", "egg", "dairy"], "dietary": ["alcohol"], "facts": []}, {"id": "bistecca", "cat": "tavola", "name": "Bistecca Fiorentina", "price": "$115", "desc": "32oz dry-aged porterhouse, roasted garlic, salmoriglio", "drop": "Dry-aged Porterhouse bone-in with a bright and vibrant salmoriglio sauce.", "mise_i": "Fork & Steak Knife", "mise_s": "Large Fork (+ steak knife per guest)", "allergens": [], "dietary": [], "facts": ["Salmoriglio is a southern Italian condiment of lemon, oil, herbs and garlic — a precursor to chimichurri, popularized by Italian immigrants in South America.", "One of the few menu items with no major listed allergens from the seven priority groups."]}, {"id": "rapini", "cat": "contorni", "name": "Rapini", "price": "$16", "desc": "Grilled rapini, Taleggio fonduto, pangrattato", "drop": "", "mise_i": "Fork & Knife", "mise_s": "Tongs", "allergens": ["gluten", "dairy"], "dietary": ["vegetarian"], "facts": []}, {"id": "patate-novelle", "cat": "contorni", "name": "Patate Novelle", "price": "$16", "desc": "New potato, parsley, beef tallow bagna cauda", "drop": "Twice-cooked new potatoes with bagna cauda and beef tallow", "mise_i": "Fork & Knife", "mise_s": "Large Spoon", "allergens": ["dairy", "fish"], "dietary": [], "facts": ["Bagna cauda (an anchovy-garlic dip from Piedmont) is modernized here with beef tallow — easy to assume this is a vegetarian side, but it isn't."]}, {"id": "brussels-sprout", "cat": "contorni", "name": "Brussels Sprout", "price": "$16", "desc": "Guanciale, black pepper, egg yolk, Pecorino", "drop": "Brussels sprouts tossed in guanciale fat and Pecorino aioli", "mise_i": "Fork & Knife", "mise_s": "", "allergens": ["dairy", "egg", "mustard"], "dietary": ["pork"], "facts": []}, {"id": "terrina-cioccolato", "cat": "dolci", "name": "Terrina al Cioccolato", "price": "$12", "desc": "Dark chocolate terrine, candied hazelnuts, chocolate salami, chocolate gelato", "drop": "Decadent chocolate terrine with crunchy hazelnuts and a hint of salt.", "mise_i": "Dessert spoon", "mise_s": "", "allergens": ["dairy", "egg", "treenut"], "dietary": ["vegetarian", "alcohol"], "facts": ["'Terrine' comes from the French for 'large earthenware pot' — origins trace to the Middle Ages."]}, {"id": "budino-caramello", "cat": "dolci", "name": "Budino al Caramello", "price": "$12", "desc": "Salted caramel pudding, whipped cream, amaretti crumble", "drop": "Salted caramel pudding with house made whipped cream and an amaretti crumble", "mise_i": "Dessert spoon", "mise_s": "", "allergens": ["dairy", "egg", "treenut"], "dietary": ["vegetarian"], "facts": ["'Budino' is simply Italian for pudding."]}, {"id": "torta-di-mele", "cat": "dolci", "name": "Torta Di Mele", "price": "$14", "desc": "Apple cake, cinnamon sugar, ricotta gelato", "drop": "Warm house made apple cake with caramelized apples, ricotta gelato.", "mise_i": "Spoon", "mise_s": "", "allergens": ["gluten", "egg", "dairy"], "dietary": ["vegetarian"], "facts": ["Olive-oil cake base flash-fried to order then coated in cinnamon sugar — built to taste like a warm donut/fritter."]}, {"id": "tiramisu", "cat": "dolci", "name": "Tiramisu", "price": "$14", "desc": "House made lady fingers, espresso, mascarpone crema, dark chocolate", "drop": "Espresso soaked house made lady fingers with mascarpone crema and dark chocolate shards and cocoa powder", "mise_i": "Spoon", "mise_s": "", "allergens": ["gluten", "egg", "dairy"], "dietary": ["vegetarian", "alcohol"], "facts": []}], "scenarios": [{"id": "anniversary", "title": "The Anniversary", "party": "2 guests", "occasion": "First wedding anniversary", "notes": "No dietary restrictions. Not in a rush — they want the full experience. Budget: generous, ~$150–200 for two before wine.", "brief": "Build a multi-course dinner that feels like an occasion: a proper arc from something to start, through to a signature plate.", "minBudget": 150, "maxBudget": 200, "restriction": null, "minCourses": 3}, {"id": "client-dinner", "title": "The Client Dinner", "party": "4 guests", "occasion": "Business dinner, company card", "notes": "One guest is vegetarian. Wants to share plates family-style. Budget isn’t a concern, but the pace matters — nothing should feel rushed or awkward.", "brief": "Build a shareable spread everyone (including the vegetarian) can eat from, with a natural pace for conversation.", "minBudget": 120, "maxBudget": 400, "restriction": "vegetarian", "minCourses": 3}, {"id": "birthday-family", "title": "The Birthday Family", "party": "5 guests (incl. 2 kids)", "occasion": "Grandmother’s birthday", "notes": "Mixed ages, want some familiar, crowd-pleasing dishes alongside something special for the birthday guest. Moderate budget.", "brief": "Build a dinner the whole table can agree on — easy dishes for the kids, something a little special for the guest of honor.", "minBudget": 100, "maxBudget": 220, "restriction": null, "minCourses": 3}, {"id": "before-show", "title": "Before the Show", "party": "2 guests", "occasion": "Pre-theatre, curtain at 7:30", "notes": "Sat down at 6:00 — need to be finished eating within 75 minutes. Still want it to feel like a real dinner, not fast food.", "brief": "Build a dinner that can realistically be fired, cooked, and enjoyed within the time they have.", "minBudget": 60, "maxBudget": 140, "restriction": null, "minCourses": 2}, {"id": "big-celebration", "title": "The Big Celebration", "party": "6 guests", "occasion": "Milestone birthday, drinks-forward table", "notes": "Want to order the Bistecca Fiorentina to share as the centerpiece. High budget, happy to order generously around it.", "brief": "Build a dinner around the Bistecca — what comes before it, and what supports it, so the table doesn’t overload on one course.", "minBudget": 250, "maxBudget": 600, "restriction": null, "minCourses": 3, "mustInclude": "bistecca"}, {"id": "solo-bar", "title": "Solo at the Bar", "party": "1 guest", "occasion": "Dining alone, weeknight", "notes": "Wants a satisfying but light meal with a glass of wine. Budget-conscious — keep it around $45–60 total.", "brief": "Build a one-person dinner that doesn’t feel like leftovers of a bigger meal — complete on its own.", "minBudget": 35, "maxBudget": 65, "restriction": null, "minCourses": 2}, {"id": "shellfish-allergy", "title": "The Shellfish Allergy", "party": "2 guests", "occasion": "Casual weeknight dinner", "notes": "One guest has a shellfish allergy — no prawns, squid, or octopus. Pasta-forward, moderate budget.", "brief": "Build a dinner that keeps both guests eating the same courses safely, without either feeling like an afterthought.", "minBudget": 70, "maxBudget": 160, "restriction": "shellfish", "minCourses": 2}, {"id": "all-vegetarian", "title": "All Vegetarian", "party": "3 guests", "occasion": "Friends catching up", "notes": "All three guests are vegetarian. They still want a full, multi-course dinner — not just a salad and a side.", "brief": "Build a complete vegetarian dinner arc using only vegetarian items on the menu.", "minBudget": 90, "maxBudget": 220, "restriction": "vegetarian", "minCourses": 3}], "roster": [{"name": "Adiya Z", "pin": "1004"}, {"name": "Alea A", "pin": "4000"}, {"name": "Allyson C", "pin": "5187"}, {"name": "Amanda M", "pin": "3182"}, {"name": "Anastasiia B", "pin": "6945"}, {"name": "Andrejs S", "pin": "1973"}, {"name": "Charlotte C", "pin": "5366"}, {"name": "Chaya M", "pin": "1661"}, {"name": "Christopher F", "pin": "0030"}, {"name": "Christopher Z", "pin": "1594"}, {"name": "Dylan R", "pin": "4563"}, {"name": "Elliott P", "pin": "8119"}, {"name": "Erenee K", "pin": "5148"}, {"name": "Farah S", "pin": "4119"}, {"name": "Fen R", "pin": "6261"}, {"name": "Gabriel P", "pin": "6844"}, {"name": "Gabriela M", "pin": "4811"}, {"name": "Grazia C", "pin": "2831"}, {"name": "Hayley J", "pin": "8332"}, {"name": "Hope G", "pin": "9529"}, {"name": "Isaiah K", "pin": "7495"}, {"name": "Jas B", "pin": "0909"}, {"name": "Jonathon H", "pin": "8054"}, {"name": "Jose G", "pin": "0757"}, {"name": "Katya M", "pin": "6723"}, {"name": "Laura S", "pin": "8334"}, {"name": "Leyla C", "pin": "8040"}, {"name": "Lilia G", "pin": "4143"}, {"name": "Lola S", "pin": "1871"}, {"name": "Lucia P", "pin": "5960"}, {"name": "Manola S", "pin": "7889"}, {"name": "Maria Flavia C", "pin": "9753"}, {"name": "Navy K", "pin": "5648"}, {"name": "Nhicksha R", "pin": "3783"}, {"name": "Nicole P", "pin": "3069"}, {"name": "Nikolas J", "pin": "1345"}, {"name": "Olivia D", "pin": "8417"}, {"name": "Ryan W", "pin": "7308"}, {"name": "Sophie C", "pin": "6690"}, {"name": "Stella Q", "pin": "0028"}, {"name": "Tiernan W", "pin": "1054"}, {"name": "Zanib B", "pin": "6148"}, {"name": "Zoe S", "pin": "3080"}], "manager": {"email": "jonathon@folietta.com", "phone": ""}, "quizCategories": [{"key": "menu", "name": "Menu & Dishes", "sub": "Current Fall 2026 dinner menu"}, {"key": "service", "name": "Service & Guest Experience", "sub": "FOH procedures & guest scenarios"}, {"key": "host", "name": "Restaurant & Host Facts", "sub": "Logistics, booking & restaurant info"}, {"key": "bar", "name": "Cocktails, Amaro & Wine", "sub": "Bar program trivia"}], "questionBank": [{"category": "menu", "prompt": "Smoked Olives are Castelvetrano olives from which Italian region?", "options": ["Sicily", "Tuscany", "Piedmont", "Puglia"], "correctAnswer": "Sicily"}, {"category": "menu", "prompt": "True or False — Castelvetrano olives are cured in a fresh water and lye solution for about two weeks before they're smoked and served.", "options": ["True", "False"], "correctAnswer": "True"}, {"category": "menu", "prompt": "Focaccia is closely associated with which Italian region, with roots dating back to ancient Rome?", "options": ["Liguria", "Tuscany", "Sicily", "Piedmont"], "correctAnswer": "Liguria"}, {"category": "menu", "prompt": "Which dish's fun fact calls it \"a testament to Italy's agrarian roots\"?", "options": ["Insalata Mista", "Caprese", "Kale Caesar", "Rapini"], "correctAnswer": "Insalata Mista"}, {"category": "menu", "prompt": "The Wagyu Beef Carpaccio is a nod to a classic preparation from which region, served with a warm bagna cauda-style dip?", "options": ["Piedmont", "Tuscany", "Lazio", "Campania"], "correctAnswer": "Piedmont"}, {"category": "menu", "prompt": "Which dessert's name comes from the French word for \"a large earthenware pot\"?", "options": ["Terrina al Cioccolato", "Budino al Caramello", "Torta Di Mele", "Tiramisu"], "correctAnswer": "Terrina al Cioccolato"}, {"category": "menu", "prompt": "What does \"Budino\" mean in Italian?", "options": ["Pudding", "Little cake", "Sweet bread", "Caramel sauce"], "correctAnswer": "Pudding"}, {"category": "menu", "prompt": "Which Primi dish's name literally means \"angry,\" referring to the heat of its sauce?", "options": ["Bucatini all’Arrabbiata", "Radiatore al Cacio e Pepe", "Trottole Verdi", "Rigatoni & Meatballs"], "correctAnswer": "Bucatini all’Arrabbiata"}, {"category": "menu", "prompt": "Radiatore al Cacio e Pepe is notable on our menu for being:", "options": ["Our only garlic- and onion-free pasta", "Our spiciest pasta", "Our only vegan pasta", "Our only seafood pasta"], "correctAnswer": "Our only garlic- and onion-free pasta"}, {"category": "menu", "prompt": "True or False — Radiatore al Cacio e Pepe's sauce is built in part with whey.", "options": ["True", "False"], "correctAnswer": "True"}, {"category": "menu", "prompt": "Branzino is highlighted on our menu, in part, for being:", "options": ["One of the most sustainable Mediterranean seafood choices thanks to successful aquaculture", "The rarest fish we serve", "Wild-caught only", "The spiciest preparation on the menu"], "correctAnswer": "One of the most sustainable Mediterranean seafood choices thanks to successful aquaculture"}, {"category": "menu", "prompt": "Patate Novelle's bagna cauda is modernized with which addition?", "options": ["Beef tallow", "Truffle", "Nduja", "Saffron"], "correctAnswer": "Beef tallow"}, {"category": "menu", "prompt": "The Bistecca Fiorentina's salmoriglio is considered a precursor to which other sauce, popularized by Italian immigrants in South America?", "options": ["Chimichurri", "Pesto", "Salsa verde", "Romesco"], "correctAnswer": "Chimichurri"}, {"category": "menu", "prompt": "Trottole Verdi's pasta shape is nicknamed after which famous landmark, which it resembles?", "options": ["Mount Vesuvius", "The Colosseum", "The Trevi Fountain", "Mount Etna"], "correctAnswer": "Mount Vesuvius"}, {"category": "menu", "prompt": "True or False — Calamaro is coated in a gluten-free flour blend (rice, potato, and tapioca starch) rather than wheat flour.", "options": ["True", "False"], "correctAnswer": "True"}, {"category": "menu", "prompt": "Parmesan Crocchette are garnished with Prosciutto di Parma, aged for how long?", "options": ["14 months", "6 months", "24 months", "36 months"], "correctAnswer": "14 months"}, {"category": "menu", "prompt": "Which classic Roman pasta on our menu was reportedly created by 18th-century shepherds?", "options": ["Radiatore al Cacio e Pepe", "Bucatini all’Arrabbiata", "Trottole Verdi", "Tagliatelle"], "correctAnswer": "Radiatore al Cacio e Pepe"}, {"category": "menu", "prompt": "True or False — Torta Di Mele is served cold, straight from the fridge.", "options": ["True", "False"], "correctAnswer": "False"}, {"category": "service", "prompt": "How many rings should you aim to answer the phone within?", "options": ["Within the first 2-3 rings", "After 5 rings", "As soon as convenient", "It doesn't matter as long as you answer"], "correctAnswer": "Within the first 2-3 rings"}, {"category": "service", "prompt": "A party's table isn't ready when they arrive for their reservation. What's the right approach?", "options": ["Be honest about the table's status, share your game plan, and offer them a drink while they wait", "Ask them to come back later", "Seat them at an unprepared table", "Say nothing and hope it resolves itself"], "correctAnswer": "Be honest about the table's status, share your game plan, and offer them a drink while they wait"}, {"category": "service", "prompt": "True or False — you're allowed to ask a guest with a service animal for documentation or certification.", "options": ["True", "False"], "correctAnswer": "False"}, {"category": "service", "prompt": "A guest asks a menu or allergen question you're not sure about. What's the right response?", "options": ["Let them know you'll double-check with a manager to be sure", "Give your best guess", "Say it's probably fine", "Tell them you don't know and move on"], "correctAnswer": "Let them know you'll double-check with a manager to be sure"}, {"category": "service", "prompt": "From which side do you drop food, and from which side do you clear dirty dishes?", "options": ["Drop from the left, clear from the right", "Drop from the right, clear from the left", "Both from the left", "Both from the right"], "correctAnswer": "Drop from the left, clear from the right"}, {"category": "service", "prompt": "At what point in service does it become necessary to use a tray?", "options": ["The moment you need to carry or clear more than one glass", "Only when carrying food", "Never", "Only during brunch"], "correctAnswer": "The moment you need to carry or clear more than one glass"}, {"category": "service", "prompt": "A guest expresses dissatisfaction on their way out. What's your first move?", "options": ["Apologize sincerely and offer to grab a manager", "Say nothing and let them leave", "Defend the restaurant's choices", "Offer a refund immediately without listening"], "correctAnswer": "Apologize sincerely and offer to grab a manager"}, {"category": "service", "prompt": "What's the correct protocol before offering a guest an NCI (no-charge item)?", "options": ["Always ask a manager first", "Just ring it in", "Only tell the kitchen", "Ask the guest what they'd like for free"], "correctAnswer": "Always ask a manager first"}, {"category": "service", "prompt": "True or False — upselling should happen on every table, regardless of guest preference, purely to raise average cheque.", "options": ["True", "False"], "correctAnswer": "False"}, {"category": "service", "prompt": "How often should washroom checks happen during service?", "options": ["Every hour", "Once per shift", "Every 15 minutes", "Only if a guest complains"], "correctAnswer": "Every hour"}, {"category": "service", "prompt": "How far before your scheduled shift should you be ready on the floor?", "options": ["5-15 minutes early, with notepad and pen ready", "Right at your start time", "An hour early", "Whenever you arrive"], "correctAnswer": "5-15 minutes early, with notepad and pen ready"}, {"category": "service", "prompt": "A guest buys you a drink or shot during your shift. What's the protocol?", "options": ["Thank them, let an MOD know it's been added to your bill, and enjoy it responsibly after your shift", "Drink it immediately", "Decline and ignore it", "Ask for cash instead"], "correctAnswer": "Thank them, let an MOD know it's been added to your bill, and enjoy it responsibly after your shift"}, {"category": "service", "prompt": "You accidentally drop and break a glass while clearing a table. What's your first priority?", "options": ["Make sure no one's been injured", "Clean it up as fast as possible", "Figure out who's responsible", "Keep serving and clean later"], "correctAnswer": "Make sure no one's been injured"}, {"category": "service", "prompt": "What's the right way to handle a reservation that's running late?", "options": ["Text at 5 minutes late, call after 10 minutes late, release the table around 15 minutes late", "Release the table immediately", "Hold it indefinitely with no contact", "Only call once, right at the reservation time"], "correctAnswer": "Text at 5 minutes late, call after 10 minutes late, release the table around 15 minutes late"}, {"category": "service", "prompt": "Which best describes Folietta's \"La Dolce Vita\" approach to service?", "options": ["Move with efficiency, but never rush guests or make them feel pressured to leave", "Turn tables as fast as possible", "Let guests linger with no attention at all", "It only applies at brunch"], "correctAnswer": "Move with efficiency, but never rush guests or make them feel pressured to leave"}, {"category": "service", "prompt": "True or False — a Server Assistant's top priorities include supporting servers, anticipating guest needs, and running food.", "options": ["True", "False"], "correctAnswer": "True"}, {"category": "service", "prompt": "During a busy service, what should you do before speaking to the kitchen?", "options": ["Check in with your MOD first, and use a respectful cue like \"May I speak?\"", "Interrupt immediately with your question", "Wait until after the shift ends", "Only ever speak through another server"], "correctAnswer": "Check in with your MOD first, and use a respectful cue like \"May I speak?\""}, {"category": "service", "prompt": "A guest wants to sit at a table that's reserved for a larger party arriving soon. What's the right approach?", "options": ["Explain the table is reserved and offer to show them another great option", "Seat them there anyway", "Tell them no without any explanation", "Ignore the request and walk away"], "correctAnswer": "Explain the table is reserved and offer to show them another great option"}, {"category": "service", "prompt": "When opening a bottle of wine, what's the correct first step?", "options": ["Present the bottle to the guest who ordered it, naming it, the varietal, and the year", "Pour everyone immediately", "Decant it without asking", "Pour the guest who ordered it last, without a taste first"], "correctAnswer": "Present the bottle to the guest who ordered it, naming it, the varietal, and the year"}, {"category": "service", "prompt": "Once service has started, when is it appropriate to top up a guest's wine?", "options": ["Anytime it's needed, using a clean cloth napkin as you pour", "Never without being asked", "Only once the bottle is nearly empty", "Only at the very end of the meal"], "correctAnswer": "Anytime it's needed, using a clean cloth napkin as you pour"}, {"category": "service", "prompt": "True or False — your section is priority one, but helping other sections and running food you see sitting in the window is still part of the job.", "options": ["True", "False"], "correctAnswer": "True"}, {"category": "service", "prompt": "Once you've been cut by your MOD for the night, what should you do first?", "options": ["Complete your side duties and fully debrief whoever is taking over your tables", "Leave the floor immediately", "Only tell the next server if they happen to ask", "Skip your side duties if you're tired"], "correctAnswer": "Complete your side duties and fully debrief whoever is taking over your tables"}, {"category": "host", "prompt": "What is Folietta's phone number?", "options": ["604-253-4021", "604-325-4012", "604-253-4012", "604-523-4021"], "correctAnswer": "604-253-4021"}, {"category": "host", "prompt": "What is Folietta's website?", "options": ["folietta.com", "foglietta.com", "eatfolietta.com", "folietta.ca"], "correctAnswer": "folietta.com"}, {"category": "host", "prompt": "Where does the name \"Folietta\" come from?", "options": ["From \"foglietta,\" the Italian word for greenery — a nod to the Grandview-Woodland neighbourhood", "It's the chef's surname", "It means \"little leaf,\" with no neighbourhood connection", "It's named after a dish"], "correctAnswer": "From \"foglietta,\" the Italian word for greenery — a nod to the Grandview-Woodland neighbourhood"}, {"category": "host", "prompt": "What is Folietta's mission?", "options": ["Turning guests into regulars by delivering outstanding food, beverage & service", "To be the fastest table turnover in the city", "To be a regulars-only restaurant", "To focus purely on takeout"], "correctAnswer": "Turning guests into regulars by delivering outstanding food, beverage & service"}, {"category": "host", "prompt": "What social media platforms is Folietta active on?", "options": ["Instagram and Facebook", "TikTok and Twitter", "Only Instagram", "Pinterest and Instagram"], "correctAnswer": "Instagram and Facebook"}, {"category": "host", "prompt": "What is Folietta's total seating capacity, including the patio?", "options": ["130 seats plus a 30-seat patio", "80 seats total", "200 seats total", "50 seats total"], "correctAnswer": "130 seats plus a 30-seat patio"}, {"category": "host", "prompt": "How many guests can Folietta's private dining room seat?", "options": ["Up to 16", "Up to 8", "Up to 30", "Up to 50"], "correctAnswer": "Up to 16"}, {"category": "host", "prompt": "If a guest wants to book a group of 8 or more, what's the protocol?", "options": ["Defer to a manager, who contacts the guest directly", "Book it yourself right away", "Tell them we don't take groups", "Ask them to call back later"], "correctAnswer": "Defer to a manager, who contacts the guest directly"}, {"category": "host", "prompt": "What information should you take when adding a guest to the waitlist?", "options": ["First and last name, phone number, and seating preference — then under-promise and over-deliver on wait times", "Just a first name", "A deposit", "Nothing — just add them to the list"], "correctAnswer": "First and last name, phone number, and seating preference — then under-promise and over-deliver on wait times"}, {"category": "host", "prompt": "True or False — Folietta currently offers electronic gift cards.", "options": ["True", "False"], "correctAnswer": "False"}, {"category": "host", "prompt": "Which broader restaurant group does Folietta belong to, and what company owns it?", "options": ["Wentworth Hospitality Group, owned by Amacon", "An independent single restaurant", "A franchise of a US chain", "Part of a hotel group only"], "correctAnswer": "Wentworth Hospitality Group, owned by Amacon"}, {"category": "host", "prompt": "Which of these are Folietta's sister restaurants within the Wentworth Hospitality Group?", "options": ["Homer St Cafe and Bar, Maxine's Cafe and Bar, and Tableau Bar Bistro", "The Keg and Cactus Club", "Only Homer St Cafe and Bar", "Earls and Joey Restaurant Group"], "correctAnswer": "Homer St Cafe and Bar, Maxine's Cafe and Bar, and Tableau Bar Bistro"}, {"category": "host", "prompt": "What email is used for private dining room bookings?", "options": ["ciao@folietta.com", "info@folietta.com", "events@folietta.com", "reservations@folietta.com"], "correctAnswer": "ciao@folietta.com"}, {"category": "host", "prompt": "Beyond the order itself, what should you gather when taking a to-go order?", "options": ["Guest name, phone number, pickup time, and any allergies or special requests", "Just a name", "Just a phone number", "Nothing beyond the order"], "correctAnswer": "Guest name, phone number, pickup time, and any allergies or special requests"}, {"category": "host", "prompt": "What's the correct way to read a chit?", "options": ["Note the dish and modifications, table and seat numbers, cross off as you go, and stab the chit when done", "Just glance at the dish name", "Read it out loud to the kitchen", "File it away for later"], "correctAnswer": "Note the dish and modifications, table and seat numbers, cross off as you go, and stab the chit when done"}, {"category": "host", "prompt": "Are servers and SAs allowed to go behind the bar or step onto the kitchen line without permission?", "options": ["No — never without an MOD or chef's permission", "Yes, anytime", "Only during slow periods", "Only to grab food"], "correctAnswer": "No — never without an MOD or chef's permission"}, {"category": "bar", "prompt": "What is grappa?", "options": ["A grape distillate made from the leftover skins, stems, and seeds of winemaking", "A clear potato spirit", "A herbal liqueur", "A sparkling wine"], "correctAnswer": "A grape distillate made from the leftover skins, stems, and seeds of winemaking"}, {"category": "bar", "prompt": "What is amaro?", "options": ["A distilled spirit (or wine) infused with bittering botanicals like bark, herbs, and flowers", "A sweet dessert wine", "A type of Italian beer", "A coffee liqueur"], "correctAnswer": "A distilled spirit (or wine) infused with bittering botanicals like bark, herbs, and flowers"}, {"category": "bar", "prompt": "True or False — amaro can only legally be made in Italy.", "options": ["True", "False"], "correctAnswer": "False"}, {"category": "bar", "prompt": "What's the difference between an aperitivo and a digestivo?", "options": ["Aperitivo is enjoyed before a meal to stimulate the appetite; digestivo after, to aid digestion", "They're the same thing", "Aperitivo is always non-alcoholic", "Digestivo is only for dessert pairings"], "correctAnswer": "Aperitivo is enjoyed before a meal to stimulate the appetite; digestivo after, to aid digestion"}, {"category": "bar", "prompt": "Which botanical must be present for an aromatized wine to be classified as vermouth?", "options": ["Wormwood", "Juniper", "Gentian", "Saffron"], "correctAnswer": "Wormwood"}, {"category": "bar", "prompt": "True or False — vermouth is most commonly made with a white wine base.", "options": ["True", "False"], "correctAnswer": "True"}, {"category": "bar", "prompt": "What region of Italy must Vermouth di Torino be made in?", "options": ["Piedmont", "Tuscany", "Veneto", "Sicily"], "correctAnswer": "Piedmont"}, {"category": "bar", "prompt": "How would you describe Fernet Branca to a curious guest?", "options": ["Medicinal, bitter, with a strong menthol note", "Sweet and fruity", "Light and floral", "Smoky, like a whisky"], "correctAnswer": "Medicinal, bitter, with a strong menthol note"}, {"category": "bar", "prompt": "What goes into our Bloody Mary (Maria Sangue)?", "options": ["Vodka, tomato juice, Bomba, balsamic vinegar, and lime juice", "Vodka, clam juice, and celery salt only", "Gin, tomato juice, and horseradish", "Vodka, V8, and hot sauce only"], "correctAnswer": "Vodka, tomato juice, Bomba, balsamic vinegar, and lime juice"}, {"category": "bar", "prompt": "Compared to an Espresso Martini, the Amore Amaro is:", "options": ["More complex, with more bitterness and richness", "Sweeter and lighter", "Identical in flavor", "Served without any coffee element"], "correctAnswer": "More complex, with more bitterness and richness"}, {"category": "bar", "prompt": "True or False — a White Negroni is typically lighter and more delicate than a classic Negroni, with the bitterness dialed back.", "options": ["True", "False"], "correctAnswer": "True"}, {"category": "bar", "prompt": "If a guest wants to change an ingredient or reduce the pour in one of Folietta's signature cocktails, what's the right approach?", "options": ["Politely explain the cocktail is curated as-is and recommend something else that fits what they're after", "Always accommodate any change", "Refuse to serve them anything", "Make the drink exactly as asked with no comment"], "correctAnswer": "Politely explain the cocktail is curated as-is and recommend something else that fits what they're after"}], "pickupStations": [{"key": "hot", "name": "Hot Pickup", "sub": "Primi · Secondi · Contorni · Hot Antipasti"}, {"key": "cold", "name": "Cold Pickup", "sub": "Stuzzi · Pane · Insalata · Cold Antipasti · Dolci"}], "categoryPickup": {"stuzzi": "cold", "pane": "cold", "insalate": "cold", "dolci": "cold", "primi": "hot", "tavola": "hot", "contorni": "hot"}, "antipastiPickup": {"wagyu-carpaccio": "cold", "burrata": "cold", "mozzarella-sticks": "hot", "polpo": "hot", "calamaro": "hot", "polpette": "hot"}, "floorTables": [{"id": "61", "zone": "d61", "seats": [1, 2, 3, 4], "x": 11.1, "y": 62.9, "shared": true, "booth": true}, {"id": "62", "zone": "d61", "seats": [1, 2, 3, 4], "x": 11.0, "y": 75.1, "shared": true, "booth": true}, {"id": "63", "zone": "d61", "seats": [1, 2, 3, 4], "x": 11.0, "y": 87.2, "shared": true, "booth": true}, {"id": "64", "zone": "d61", "seats": [1, 2, 3, 4], "x": 11.0, "y": 99.3, "shared": true, "booth": true}, {"id": "51", "zone": "d51", "seats": [1, 2], "x": 29.9, "y": 59.3, "shared": true}, {"id": "52", "zone": "d51", "seats": [1, 2], "x": 29.9, "y": 62.9, "shared": true}, {"id": "53", "zone": "d51", "seats": [1, 2], "x": 29.9, "y": 70.1, "shared": true}, {"id": "54", "zone": "d51", "seats": [1, 2], "x": 29.9, "y": 77.3, "shared": true}, {"id": "55", "zone": "d51", "seats": [1, 2], "x": 29.9, "y": 84.5, "shared": true}, {"id": "56", "zone": "d51", "seats": [1, 2], "x": 29.9, "y": 91.7, "shared": true}, {"id": "57", "zone": "d51", "seats": [1, 2], "x": 29.9, "y": 98.9, "shared": true}, {"id": "58", "zone": "d51", "seats": [1, 2], "x": 29.9, "y": 102.6, "shared": true}, {"id": "41", "zone": "d41", "seats": [1, 2], "x": 43.8, "y": 59.5, "shared": true}, {"id": "42", "zone": "d41", "seats": [1, 2], "x": 43.7, "y": 63.1, "shared": true}, {"id": "43", "zone": "d41", "seats": [1, 2], "x": 43.7, "y": 70.3, "shared": true}, {"id": "44", "zone": "d41", "seats": [1, 2], "x": 43.7, "y": 77.5, "shared": true}, {"id": "45", "zone": "d41", "seats": [1, 2], "x": 43.7, "y": 84.7, "shared": true}, {"id": "46", "zone": "d41", "seats": [1, 2], "x": 43.7, "y": 91.9, "shared": true}, {"id": "47", "zone": "d41", "seats": [1, 2], "x": 43.7, "y": 99.1, "shared": true}, {"id": "48", "zone": "d41", "seats": [1, 2], "x": 43.9, "y": 102.7, "shared": true}, {"id": "30", "zone": "d30", "seats": [1, 2], "x": 63.2, "y": 59.5, "shared": true}, {"id": "31", "zone": "d30", "seats": [1, 2], "x": 63.2, "y": 63.1, "shared": true}, {"id": "32", "zone": "d30", "seats": [1, 2], "x": 63.1, "y": 66.7, "shared": true}, {"id": "33", "zone": "d30", "seats": [1, 2], "x": 63.2, "y": 72.1, "shared": true}, {"id": "34", "zone": "d30", "seats": [1, 2], "x": 63.2, "y": 75.7, "shared": true}, {"id": "35", "zone": "d30", "seats": [1, 2], "x": 63.2, "y": 81.1, "shared": true}, {"id": "36", "zone": "d30", "seats": [1, 2], "x": 63.2, "y": 84.7, "shared": true}, {"id": "37", "zone": "d30", "seats": [1, 2], "x": 63.1, "y": 90.1, "shared": true}, {"id": "38", "zone": "d30", "seats": [1, 2], "x": 63.2, "y": 93.7, "shared": true}, {"id": "39", "zone": "d30", "seats": [1, 2], "x": 63.2, "y": 99.1, "shared": true}, {"id": "40", "zone": "d30", "seats": [1, 2], "x": 63.2, "y": 102.7, "shared": true}, {"id": "21", "zone": "lounge", "seats": [1, 2, 3, 4], "x": 66.0, "y": 43.7, "shared": true}, {"id": "22", "zone": "lounge", "seats": [1, 2, 3, 4], "x": 65.9, "y": 34.6, "shared": true}, {"id": "23", "zone": "lounge", "seats": [1, 2, 3, 4], "x": 65.9, "y": 25.5, "shared": true}, {"id": "24", "zone": "lounge", "seats": [1, 2, 3, 4], "x": 65.9, "y": 16.4, "shared": true}, {"id": "25", "zone": "lounge", "seats": [1, 2, 3, 4], "x": 65.9, "y": 7.3, "shared": true}, {"id": "81", "zone": "patio-upper", "seats": [1, 2], "x": 88.2, "y": 95.8, "shared": true}, {"id": "82", "zone": "patio-upper", "seats": [1, 2], "x": 88.1, "y": 87.3, "shared": true}, {"id": "83", "zone": "patio-upper", "seats": [1, 2], "x": 88.1, "y": 78.9, "shared": true}, {"id": "84", "zone": "patio-upper", "seats": [1, 2], "x": 88.1, "y": 70.5, "shared": true}, {"id": "91", "zone": "patio-lower", "seats": [1, 2], "x": 88.2, "y": 121.0, "shared": true}, {"id": "92", "zone": "patio-lower", "seats": [1, 2], "x": 88.1, "y": 128.7, "shared": true}, {"id": "93", "zone": "patio-lower", "seats": [1, 2], "x": 88.1, "y": 136.3, "shared": true}, {"id": "94", "zone": "patio-lower", "seats": [1, 2], "x": 88.1, "y": 143.9, "shared": true}, {"id": "95", "zone": "patio-lower", "seats": [1, 2], "x": 88.1, "y": 151.6, "shared": true}], "barSeats": [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14], "chefsBarSeats": [79, 78, 77, 76, 75, 74, 73, 72, 71, 70], "floorZones": [{"key": "washrooms", "name": "Washrooms", "kind": "door", "x": 10.1, "y": 32.5, "w": 16, "h": 18, "labelY": 26.5}, {"key": "host", "name": "Host Stand", "kind": "podium", "x": 50.5, "y": 50.8, "w": 11, "h": 6, "labelY": 46.0}, {"key": "bar-top", "name": "Bar", "kind": "counter", "x": 34.1, "y": 8.1, "w": 30.58, "h": 12.3, "flip": true, "labelY": 4.949999999999999}, {"key": "bar", "name": "Bar", "kind": "counter", "x": 49.3, "y": 25.1, "w": 6, "h": 29.5, "labelY": 25.0, "labelX": 53.0}, {"key": "bar-return", "name": "Bar", "kind": "counter", "x": 44.9, "y": 41.4, "w": 9, "h": 3, "labelY": 42.9}, {"key": "lounge", "name": "Lounge", "kind": "dining", "x": 64.2, "y": 25.3, "w": 16, "h": 42.4, "labelY": 21.00000000000003}, {"key": "d61", "name": "Tables 61–64", "kind": "dining", "x": 11.2, "y": 81.1, "w": 14, "h": 42, "labelY": 68.89999999999993}, {"key": "sommelier", "name": "Sommelier Station", "kind": "podium", "x": 11.0, "y": 107, "w": 12, "h": 6, "labelY": 112.0}, {"key": "d51", "name": "Tables 51–58", "kind": "dining", "x": 29.9, "y": 81.2, "w": 14, "h": 48, "labelY": 66.59999999999994}, {"key": "server-counter", "name": "Server Counter", "kind": "counter", "x": 36.5, "y": 107.9, "w": 20, "h": 5, "labelY": 112.5}, {"key": "d41", "name": "Tables 41–48", "kind": "dining", "x": 44.5, "y": 81.3, "w": 14, "h": 48, "labelY": 66.69999999999993}, {"key": "d30", "name": "Tables 30–40", "kind": "dining", "x": 63.15, "y": 81.1, "w": 16, "h": 48, "labelY": 69.4999999999999}, {"key": "patio-upper", "name": "Upper Patio", "kind": "patio", "x": 86.3, "y": 80.4, "w": 23.7, "h": 44.1, "labelY": 59.95000000000001}, {"key": "patio-lower", "name": "Lower Patio", "kind": "patio", "x": 86.6, "y": 131.4, "w": 23.7, "h": 47.4, "labelY": 109.3}, {"key": "chefs-bar", "name": "Chef's Bar", "kind": "counter", "x": 39.6, "y": 126.1, "w": 48, "h": 8, "flip": true, "labelY": 119.0}, {"key": "pickup-hot", "name": "Hot Pickup", "kind": "kitchen", "x": 18, "y": 145, "w": 36, "h": 23, "labelY": 136.5}, {"key": "pickup-cold", "name": "Cold Pickup", "kind": "kitchen", "x": 54.9, "y": 145, "w": 37, "h": 23, "labelY": 136.5}], "floorWalls": [{"key": "notch", "x0": 0.0, "y0": 0.0, "x1": 17.86, "y1": 21.74}, {"key": "east-wall", "x0": 72.55, "y0": 0.0, "x1": 73.55, "y1": 49.35}, {"key": "east-wall", "x0": 72.55, "y0": 56.6, "x1": 73.55, "y1": 103.66}, {"key": "east-wall", "x0": 72.55, "y0": 109.04, "x1": 73.55, "y1": 117.79}, {"key": "east-wall", "x0": 72.55, "y0": 122.27, "x1": 73.55, "y1": 156.54}], "floorWorldW": 100, "floorWorldH": 157}</script>
 <script>
 (function(){
 "use strict";
@@ -211,8 +329,39 @@ var ROSTER = DATA.roster || [];
 var MANAGER = DATA.manager || { email: '', phone: '' };
 var QUIZ_CATEGORIES = DATA.quizCategories || [{ key: 'menu', name: 'Menu & Dishes', sub: '' }];
 var QUESTION_BANK = DATA.questionBank || [];
+var PICKUP_STATIONS = DATA.pickupStations || [];
+var CATEGORY_PICKUP = DATA.categoryPickup || {};
+var ANTIPASTI_PICKUP = DATA.antipastiPickup || {};
+var FLOOR_TABLES = DATA.floorTables || [];
+var BAR_SEATS = DATA.barSeats || [];
+var CHEFS_BAR_SEATS = DATA.chefsBarSeats || [];
+var FLOOR_ZONES = DATA.floorZones || [];
+var FLOOR_WALLS = DATA.floorWalls || [];
+var WORLD_W = DATA.floorWorldW || 100;
+var WORLD_H = DATA.floorWorldH || 100;
 var CAT = {}; CATEGORIES.forEach(function(c){ CAT[c.key] = c; });
 var ITEM = {}; ITEMS.forEach(function(i){ ITEM[i.id] = i; });
+var ZONE = {}; FLOOR_ZONES.forEach(function(z){ ZONE[z.key] = z; });
+var TABLE = {}; FLOOR_TABLES.forEach(function(t){ TABLE[t.id] = t; });
+// Admin-only Layout Editor — append ?layout=1 to the URL to reveal its tile
+// on the home screen. Lets counters/tables be dragged into place on the
+// real floor plan and the new coordinates exported as JSON, so a layout
+// change can be read back exactly instead of guessed at from a screenshot
+// or a text description. See viewLayoutEditor/svgLayoutEditorBlueprint
+// below. Purely local: dragging here never touches FLOOR_ZONES/FLOOR_TABLES
+// or anyone else's view of the game.
+var EDITOR_ENABLED = /[?&]layout=1\b/.test(location.search || '');
+function freshEditState(){
+  var st = { zones: {}, tables: {} };
+  FLOOR_ZONES.forEach(function(z){ st.zones[z.key] = { dx: 0, dy: 0 }; });
+  FLOOR_TABLES.forEach(function(t){ st.tables[t.id] = { dx: 0, dy: 0 }; });
+  return st;
+}
+var EDIT_STATE = freshEditState();
+var FLOOR_TARGETS = FLOOR_TABLES.concat([
+  { id: 'bar', zone: 'bar', seats: BAR_SEATS, x: (ZONE.bar || {}).x, y: (ZONE.bar || {}).y, shared: false, isCounter: true, label: 'the Bar' },
+  { id: 'chefs-bar', zone: 'chefs-bar', seats: CHEFS_BAR_SEATS, x: (ZONE['chefs-bar'] || {}).x, y: (ZONE['chefs-bar'] || {}).y, shared: false, isCounter: true, label: "the Chef's Bar" }
+]);
 var ID_KEY = 'folietta_player_id';
 var NAME_KEY = 'folietta_player_name';
 var HISTORY_KEY = 'folietta_history';
@@ -337,6 +486,13 @@ var state = { view: getIdentity() ? 'home' : 'identify' };
 
 function go(view, extra){
   state = Object.assign({ view: view }, extra || {});
+  window.scrollTo(0, 0);
+  render();
+}
+// Switches view within the current "Run the Floor" session without
+// resetting state (go() replaces the whole state object; this keeps it).
+function floorGo(view){
+  state.view = view;
   window.scrollTo(0, 0);
   render();
 }
@@ -513,6 +669,215 @@ function buildQuiz(n, cats){
 }
 
 // ---------------------------------------------------------------------
+// "Run the Floor" — table/seat numbers + kitchen-to-table routing
+// ---------------------------------------------------------------------
+function dishPickup(item){
+  if (item.cat === 'antipasti') return ANTIPASTI_PICKUP[item.id] || 'hot';
+  return CATEGORY_PICKUP[item.cat] || 'hot';
+}
+// ---------------------------------------------------------------------
+// Free-roam floor movement — the server drags an X slider and a Y slider
+// to walk the actual floor plan themselves. There's no taught route and no
+// "wrong turn" tap anymore: they choose how to get there and back, and the
+// round is scored on how good those choices were (did they reach the right
+// spot, how direct a line they walked, how quickly, and whether they kept
+// moving forward through the room instead of backtracking over their own
+// steps). Walls and furniture are real obstacles — the slider won't drag
+// the character through a table, the bar, the host stand, the washrooms,
+// or the kitchen pass.
+// ---------------------------------------------------------------------
+function floorPickupPoint(){
+  var z = ZONE['pickup-hot'];
+  return [z.x, z.y];
+}
+// Where a given forward/return target "counts" as reached. Tables use a
+// capture radius around their point; counters and the kitchen pass use the
+// open aisle in front of them (reached the moment you're anywhere along it).
+function floorTargetPoint(target){
+  if (target.id === 'pickup-hot') return floorPickupPoint();
+  if (target.isCounter){
+    var z = ZONE[target.zone];
+    return [z.x, z.y - z.h / 2 + z.h * 0.74];
+  }
+  return [target.x, target.y];
+}
+function floorIsAtTarget(x, y, target){
+  if (target.id === 'pickup-hot'){
+    var zp = ZONE['pickup-hot'];
+    var x0p = zp.x - zp.w / 2, y0p = zp.y - zp.h / 2;
+    return x >= x0p && x <= x0p + zp.w && y >= y0p && y <= y0p + zp.h;
+  }
+  if (target.isCounter){
+    var zc = ZONE[target.zone];
+    var x0c = zc.x - zc.w / 2, y0c = zc.y - zc.h / 2;
+    return x >= x0c && x <= x0c + zc.w && y >= y0c + zc.h * 0.52 && y <= y0c + zc.h;
+  }
+  var dx = x - target.x, dy = y - target.y;
+  return Math.sqrt(dx * dx + dy * dy) <= 4.4;
+}
+// Furniture/wall obstacles the character can't be dragged through, built
+// once from the same real zone/table geometry the map is drawn from.
+var FLOOR_OBSTACLES = (function(){
+  var obs = [];
+  FLOOR_ZONES.forEach(function(z){
+    var x0 = z.x - z.w / 2, y0 = z.y - z.h / 2;
+    if (z.kind === 'counter'){
+      // Every counter zone (bar-top, bar, chef's-bar, server-counter) now
+      // sits well short of the building's full width — the real plan's
+      // actual proportions, not a square-cropped stylization — so each
+      // one already has real open floor at both ends; no artificial gap
+      // needs to be carved out of any of them.
+      // Only the solid counter SLAB is impassable — staff can't walk on
+      // top of the bar, but the open floor along its guest-facing side
+      // (where the stools are) stays walkable so a server can still reach
+      // each seat. Most counters are wider than they are deep (bar-top,
+      // chef's-bar, server-counter) and run the slab along their full
+      // width; the 'bar' zone is the one counter that's taller than it is
+      // wide (it's the vertical leg of the L, see data.py), so its slab
+      // has to run along its full HEIGHT instead — same rule as
+      // svgCounterShape in the renderer below, kept in sync by hand. A
+      // zone's "flip" puts that slab on the far side of its stools instead
+      // of the near side (see data.py's 'bar' entry for why).
+      if (z.h > z.w){
+        var barX0 = z.flip ? x0 + z.w * 0.5 : x0 + z.w * 0.08;
+        var barX1 = barX0 + z.w * 0.42;
+        obs.push({ x0: barX0, y0: y0, x1: barX1, y1: y0 + z.h });
+      } else {
+        var barY0 = z.flip ? y0 + z.h * 0.5 : y0 + z.h * 0.08;
+        var barY1 = barY0 + z.h * 0.42;
+        obs.push({ x0: x0, y0: barY0, x1: x0 + z.w, y1: barY1 });
+      }
+    } else if (z.kind === 'podium'){
+      obs.push({ x0: z.x - 3.8, y0: z.y - 2.9, x1: z.x + 3.8, y1: z.y + 2.9 });
+    } else if (z.kind === 'door'){
+      obs.push({ x0: x0, y0: y0, x1: x0 + z.w, y1: y0 + z.h });
+    }
+    // 'kitchen' (Hot/Cold Pickup) is open floor the server stands in — the
+    // pass-edge drawn below is just flavour, not a wall, so no obstacle.
+  });
+  FLOOR_TABLES.forEach(function(t){
+    var fourTop = t.seats.length >= 4;
+    obs.push(fourTop
+      ? { x0: t.x - 2.7, y0: t.y - 2.7, x1: t.x + 2.7, y1: t.y + 2.7 }
+      : { x0: t.x - 2.7, y0: t.y - 1.8, x1: t.x + 2.7, y1: t.y + 1.8 });
+  });
+  // Real walls (see FLOOR_WALLS in data.py) — the building's true,
+  // non-rectangular outline and the dining-room/patio divider with its
+  // three actual door gaps. Unlike furniture, these aren't optional
+  // flavour: crossing one isn't just "bumping a table", it's walking
+  // through a load-bearing wall, so they go in the same obstacle list.
+  FLOOR_WALLS.forEach(function(w){ obs.push({ x0: w.x0, y0: w.y0, x1: w.x1, y1: w.y1 }); });
+  return obs;
+})();
+function floorPointBlocked(x, y){
+  for (var i = 0; i < FLOOR_OBSTACLES.length; i++){
+    var o = FLOOR_OBSTACLES[i];
+    if (x >= o.x0 && x <= o.x1 && y >= o.y0 && y <= o.y1) return true;
+  }
+  return false;
+}
+// Drags one axis toward a desired value in small steps, stopping right at
+// the edge of whatever wall/table is in the way — a soft collision so the
+// slider thumb itself settles at the blocked spot instead of sailing on.
+function floorStepAxis(oldX, oldY, desired, axis){
+  var cur = axis === 'x' ? oldX : oldY;
+  var lo = 2, hi = (axis === 'x' ? WORLD_W : WORLD_H) - 2;
+  desired = Math.max(lo, Math.min(hi, desired));
+  if (Math.abs(desired - cur) < 0.05) return floorPointBlocked(axis === 'x' ? desired : oldX, axis === 'x' ? oldY : desired) ? cur : desired;
+  var dir = desired > cur ? 1 : -1, step = 0.4, v = cur;
+  while (true){
+    var next = v + dir * step;
+    if ((dir > 0 && next > desired) || (dir < 0 && next < desired)) next = desired;
+    var tx = axis === 'x' ? next : oldX, ty = axis === 'y' ? next : oldY;
+    if (floorPointBlocked(tx, ty)) break;
+    v = next;
+    if (v === desired) break;
+  }
+  return v;
+}
+function buildFloorRound(){
+  var table = FLOOR_TARGETS[Math.floor(Math.random() * FLOOR_TARGETS.length)];
+  var n = 2 + Math.floor(Math.random() * 3); // 2-4 dishes
+  var dishPool = sample(ITEMS, Math.min(n, ITEMS.length));
+  var dishes = dishPool.map(function(it){
+    var assign;
+    if (table.shared && Math.random() < 0.4){
+      assign = { type: 'shared' };
+    } else {
+      var seat = table.seats[Math.floor(Math.random() * table.seats.length)];
+      assign = { type: 'seat', seat: seat };
+    }
+    return { id: it.id, name: it.name, cat: it.cat, pickup: dishPickup(it), assign: assign };
+  });
+  var pickupsNeeded = [];
+  dishes.forEach(function(d){ if (pickupsNeeded.indexOf(d.pickup) === -1) pickupsNeeded.push(d.pickup); });
+  var destZone = table.zone;
+  var start = floorPickupPoint();
+
+  return {
+    table: table, dishes: dishes, pickupsNeeded: pickupsNeeded, destZone: destZone,
+    // forward leg — starts already standing at Hot Pickup, walked freely from there
+    fStart: start, fx: start[0], fy: start[1], fPath: [start.slice()],
+    fArrived: false, fStartTime: null, fWrongSeen: {}, fWrongCount: 0, fMetrics: null,
+    // plating
+    placed: {}, armedDish: null,
+    // return leg — seeded once plating is done (go-floor-return)
+    rStart: null, rx: null, ry: null, rPath: null,
+    rArrived: false, rStartTime: null, rWrongCount: 0, rMetrics: null
+  };
+}
+// Turns a walked path + how long it took into a 0-100 score: did they reach
+// the right spot without wandering into a wrong table/pass (accuracy),
+// how close to a straight line was the path they actually walked
+// (efficiency), how quick they were against a fair pace (speed), and
+// whether they kept moving forward through the room rather than doubling
+// back on themselves (smoothness — the "circular motion, not backtracking"
+// ask). The four are weighted and combined into one leg score.
+function floorLegMetrics(path, startPt, targetPt, elapsedMs, wrongCount){
+  var pathLen = 0;
+  for (var i = 1; i < path.length; i++){
+    var dx = path[i][0] - path[i - 1][0], dy = path[i][1] - path[i - 1][1];
+    pathLen += Math.sqrt(dx * dx + dy * dy);
+  }
+  var straight = Math.sqrt(Math.pow(targetPt[0] - startPt[0], 2) + Math.pow(targetPt[1] - startPt[1], 2));
+  var efficiency = pathLen > 0.5 ? Math.max(0, Math.min(1, straight / pathLen)) : 1;
+  var reversals = 0, segs = 0;
+  for (var j = 1; j < path.length - 1; j++){
+    var v1x = path[j][0] - path[j - 1][0], v1y = path[j][1] - path[j - 1][1];
+    var v2x = path[j + 1][0] - path[j][0], v2y = path[j + 1][1] - path[j][1];
+    var mag1 = Math.sqrt(v1x * v1x + v1y * v1y), mag2 = Math.sqrt(v2x * v2x + v2y * v2y);
+    if (mag1 < 0.3 || mag2 < 0.3) continue;
+    segs++;
+    if ((v1x * v2x + v1y * v2y) < 0) reversals++;
+  }
+  var smoothness = segs > 0 ? Math.max(0, 1 - (reversals / segs) * 1.4) : 1;
+  var elapsedSec = Math.max(0.1, elapsedMs / 1000);
+  var par = Math.max(4, straight / 9 + 1.5);
+  var speed = Math.max(0, Math.min(1, par / elapsedSec));
+  var accuracy = Math.max(0, 1 - wrongCount * 0.18);
+  var legScore = Math.round(100 * (0.30 * accuracy + 0.25 * efficiency + 0.20 * speed + 0.25 * smoothness));
+  return {
+    pathLen: pathLen, straight: straight, efficiency: efficiency, reversals: reversals,
+    smoothness: smoothness, elapsedSec: elapsedSec, speed: speed, accuracy: accuracy,
+    wrongCount: wrongCount, legScore: Math.max(10, Math.min(100, legScore))
+  };
+}
+function floorRouteScore(r){
+  return r.fMetrics ? r.fMetrics.legScore : 0;
+}
+function floorReturnScore(r){
+  return r.rMetrics ? r.rMetrics.legScore : 0;
+}
+function floorPlacementScore(r){
+  var correct = 0;
+  r.dishes.forEach(function(d){
+    var want = d.assign.type === 'shared' ? 'shared' : ('seat-' + d.assign.seat);
+    if (r.placed[d.id] === want) correct++;
+  });
+  return { correct: correct, total: r.dishes.length, pct: Math.round(100 * correct / r.dishes.length) };
+}
+
+// ---------------------------------------------------------------------
 // Send-to-manager helpers
 // ---------------------------------------------------------------------
 function mailtoLink(subject, body){
@@ -619,15 +984,15 @@ function catPill(catKey){
 // View: Identify (no Claude account — roster name + PIN)
 // ---------------------------------------------------------------------
 function viewIdentify(){
-  var html = '<div class="brand">Folietta</div><div class="tagline">Menu Knowledge Games — Fall 2026</div>';
+  var html = '<div class="brand">Folietta</div><div class="tagline">FOH Service Games — Fall 2026</div>';
   html += '<div class="card"><h2>Who\'s playing?</h2>';
 
   if (!state.pendingName){
     var q = (state.search || '').toLowerCase();
-    var matches = ROSTER.filter(function(r){ return r.name.toLowerCase().indexOf(q) !== -1; });
+    var matches = q ? ROSTER.filter(function(r){ return r.name.toLowerCase().indexOf(q) !== -1; }) : [];
     html += '<input type="text" id="roster-search" placeholder="Start typing your name&hellip;" value="' + esc(state.search || '') + '">';
     html += '<div style="margin-top:10px;">';
-    if (!matches.length){
+    if (q && !matches.length){
       html += '<p class="muted small">No match. Ask your manager to add you to the list.</p>';
     }
     matches.slice(0, 8).forEach(function(r){
@@ -652,7 +1017,7 @@ function viewIdentify(){
 // ---------------------------------------------------------------------
 function viewHome(){
   var identity = getIdentity();
-  var html = '<div class="brand">Folietta</div><div class="tagline">Menu Knowledge Games — Fall 2026</div>';
+  var html = '<div class="brand">Folietta</div><div class="tagline">FOH Service Games — Fall 2026</div>';
 
   html += '<div class="card" style="display:flex;justify-content:space-between;align-items:center;">' +
     '<div><div class="muted">Playing as</div><div style="font-weight:bold;font-size:15px;">' + esc(identity.name) + '</div></div>' +
@@ -666,9 +1031,19 @@ function viewHome(){
     '<span class="emoji">&#10067;</span><span><p class="t-name">Menu Quiz</p>' +
     '<p class="t-desc">Dish knowledge, service &amp; guest scenarios, restaurant facts, and the bar program — pick what to cover.</p></span></button>';
 
+  html += '<button class="tile" data-action="go" data-view="floorSetup">' +
+    '<span class="emoji">&#128694;</span><span><p class="t-name">Run the Floor</p>' +
+    '<p class="t-desc">Learn table &amp; seat numbers by running real dishes from the kitchen to the right table.</p></span></button>';
+
   html += '<button class="tile" data-action="go" data-view="myResults">' +
     '<span class="emoji">&#128202;</span><span><p class="t-name">My Results (this device)</p>' +
     '<p class="t-desc">Your recent games, kept on this device only.</p></span></button>';
+
+  if (EDITOR_ENABLED){
+    html += '<button class="tile" data-action="go" data-view="layoutEditor">' +
+      '<span class="emoji">&#128296;</span><span><p class="t-name">Layout Editor (admin)</p>' +
+      '<p class="t-desc">Drag counters and tables into place on the real floor plan, then export the new coordinates.</p></span></button>';
+  }
 
   html += '<p class="muted small">No account needed — scores aren\'t saved centrally. Use &ldquo;Send to manager&rdquo; after each game to share your result.</p>';
   return html;
@@ -922,6 +1297,498 @@ function viewQuizResult(){
 }
 
 // ---------------------------------------------------------------------
+// View: Run the Floor — table/seat numbers + kitchen-to-table routing
+// ---------------------------------------------------------------------
+function tableLabel(t){ return t.isCounter ? t.label : ('Table ' + t.id); }
+
+function floorSummaryText(rounds, playerName, avg){
+  var lines = [];
+  lines.push('FOLIETTA — Run the Floor');
+  lines.push('Player: ' + playerName);
+  lines.push('Average score: ' + avg + '% across ' + rounds.length + ' deliveries');
+  lines.push('');
+  rounds.forEach(function(x, i){
+    lines.push((i + 1) + '. ' + tableLabel(x.table) + ' — ' + x.roundScore + '% (there ' + x.routeScore +
+      '%, back ' + x.returnScore + '%, plating ' + x.placementCorrect + '/' + x.placementTotal + ')');
+  });
+  lines.push('');
+  lines.push('Completed: ' + new Date().toLocaleString());
+  return lines.join('\n');
+}
+
+// ---- Floor-plan renderer — a single static blueprint of the whole
+// restaurant, drawn once at its true scale (no camera, no per-room panels).
+// Thin outlines, table/counter shapes in their real position, table numbers
+// hidden while a forward leg is still live so staff have to recognise the
+// table rather than read it off. The server's position is just a dot the
+// X/Y sliders push around; floorPointBlocked() (above) is built from this
+// exact same geometry, so a wall or table drawn here is a wall or table the
+// sliders really can't drag the dot through.
+function svgZoneShape(z){
+  var x0 = z.x - z.w / 2, y0 = z.y - z.h / 2;
+  return '<rect class="bp-zone bp-zone-' + z.kind + '" x="' + x0 + '" y="' + y0 + '" width="' + z.w + '" height="' + z.h + '" rx="1"></rect>';
+}
+function svgZoneLabel(z){
+  if (z.key === 'bar-top' || z.key === 'bar-return') return ''; // one "Bar" label on the whole counter is enough — drawn on the 'bar' zone
+  // The 60s/50s/40s/30s table columns pack every row edge-to-edge with no
+  // gap anywhere in the column, so a "Tables NN–NN" heading always lands on
+  // top of a table no matter where it's placed (see _zone_label_y in
+  // data.py, which already hunts for the single least-cramped spot and
+  // still can't find a clean one here). Simplest real fix: no heading at
+  // all — a server finds a specific table by its own number on arrival,
+  // not by which section it's in.
+  if (z.key === 'd61' || z.key === 'd51' || z.key === 'd41' || z.key === 'd30') return '';
+  var lx = (typeof z.labelX === 'number') ? z.labelX : z.x;
+  var ly = (typeof z.labelY === 'number') ? z.labelY : (z.y - z.h / 2 + 3);
+  return '<text class="bp-zone-label" x="' + lx + '" y="' + ly + '" text-anchor="middle">' + esc(z.name) + '</text>';
+}
+function svgTableShape(t, hideNum, isTarget){
+  var fourTop = t.seats.length >= 4;
+  var label = hideNum ? '•' : esc(t.id);
+  var cls = 'bp-table' + (isTarget ? ' bp-table-target' : '');
+  // Tables 61-64 are booth seating in the real room, not a round 4-top —
+  // square, same footprint (5.4x5.4) as a plain fourTop's own collision box
+  // in FLOOR_OBSTACLES above, so this is purely a rendering change.
+  var shape = t.booth
+    ? '<rect class="' + cls + ' bp-table-booth" x="' + (t.x - 2.7) + '" y="' + (t.y - 2.7) + '" width="5.4" height="5.4" rx="0.8"></rect>'
+    : (fourTop
+      ? '<circle class="' + cls + '" cx="' + t.x + '" cy="' + t.y + '" r="2.7"></circle>'
+      : '<rect class="' + cls + '" x="' + (t.x - 2.7) + '" y="' + (t.y - 1.8) + '" width="5.4" height="3.6" rx="0.6"></rect>');
+  return shape + '<text class="bp-table-label" x="' + t.x + '" y="' + (t.y + 0.9) + '" text-anchor="middle">' + label + '</text>';
+}
+// Most counters are wider than deep (bar-top, chef's-bar, server-counter)
+// and draw as a horizontal slab with stools in a row below it. The 'bar'
+// zone is the vertical leg of the real L-shaped bar (see data.py) — taller
+// than it is wide — so it needs the whole thing turned 90°: a slab running
+// the full height on one side, and stools running down the other side, one
+// per seat along the counter's real length, instead of every stool packed
+// into a sliver at the bottom. z.flip puts the slab on the far side of the
+// stools instead of the near side — see data.py's 'bar' entry for why.
+// Keep this in sync by hand with the matching obstacle shape in
+// FLOOR_OBSTACLES above — the solid slab drawn here is exactly what the
+// sliders can't drag the character through, so the two must always agree.
+function svgCounterShape(z, seatCount){
+  var x0 = z.x - z.w / 2, y0 = z.y - z.h / 2;
+  var vertical = z.h > z.w;
+  var parts;
+  if (vertical){
+    var barX0 = z.flip ? x0 + z.w * 0.5 : x0 + z.w * 0.08, barW = z.w * 0.42;
+    parts = '<rect class="bp-counter" x="' + barX0 + '" y="' + y0 + '" width="' + barW + '" height="' + z.h + '"></rect>';
+    parts += '<rect class="bp-counter-top" x="' + (barX0 + 0.3) + '" y="' + (y0 + 0.3) + '" width="' + (barW - 0.6) + '" height="' + (z.h - 0.6) + '"></rect>';
+    var padV = z.h * 0.08, usableV = z.h - padV * 2;
+    var seatX = z.flip ? x0 + z.w * 0.26 : x0 + z.w * 0.74;
+    for (var j = 0; j < seatCount; j++){
+      var sy = y0 + padV + (seatCount <= 1 ? usableV / 2 : usableV * (j / (seatCount - 1)));
+      parts += '<circle class="bp-stool" cx="' + seatX + '" cy="' + sy + '" r="0.85"></circle>';
+    }
+  } else {
+    var barY0 = z.flip ? y0 + z.h * 0.5 : y0 + z.h * 0.08, barH = z.h * 0.42;
+    parts = '<rect class="bp-counter" x="' + x0 + '" y="' + barY0 + '" width="' + z.w + '" height="' + barH + '"></rect>';
+    // A thin brass inset line along the counter's own top edge — a nod to
+    // the real bar's brass-trimmed marble top, not just a flat wood slab.
+    parts += '<rect class="bp-counter-top" x="' + (x0 + 0.3) + '" y="' + (barY0 + 0.3) + '" width="' + (z.w - 0.6) + '" height="' + (barH - 0.6) + '"></rect>';
+    var pad = z.w * 0.08, usable = z.w - pad * 2;
+    var seatY = z.flip ? y0 + z.h * 0.26 : y0 + z.h * 0.74;
+    for (var i = 0; i < seatCount; i++){
+      var sx = x0 + pad + (seatCount <= 1 ? usable / 2 : usable * (i / (seatCount - 1)));
+      parts += '<circle class="bp-stool" cx="' + sx + '" cy="' + seatY + '" r="0.85"></circle>';
+    }
+  }
+  return parts;
+}
+// Seat counts per counter zone — the real bar's 14 seats split across its
+// two segments (5 along the front wall, 9 down the side); the server
+// counter is a staff station, not guest seating, so it gets none.
+var COUNTER_SEAT_COUNTS = { 'bar-top': 5, 'bar': 9, 'chefs-bar': CHEFS_BAR_SEATS.length, 'server-counter': 0 };
+function svgZoneFixture(z){
+  if (z.kind === 'dining' || z.kind === 'patio') return '';
+  if (z.kind === 'counter') return svgCounterShape(z, COUNTER_SEAT_COUNTS[z.key] || 0);
+  if (z.kind === 'kitchen'){
+    var x0 = z.x - z.w / 2, y0 = z.y - z.h / 2;
+    return '<rect class="bp-pass-edge" x="' + x0 + '" y="' + y0 + '" width="' + z.w + '" height="1.8"></rect>';
+  }
+  if (z.kind === 'podium') return '<rect class="bp-podium" x="' + (z.x - 3.8) + '" y="' + (z.y - 2.9) + '" width="7.6" height="5.8" rx="0.6"></rect>';
+  if (z.kind === 'door') return '<rect class="bp-door" x="' + (z.x - z.w / 2) + '" y="' + (z.y - z.h / 2) + '" width="' + z.w + '" height="' + z.h + '" rx="0.6"></rect>';
+  return '';
+}
+// A "dynamic glass window" onto the real-proportioned floor plan: the
+// visible viewBox is a fixed-size CAMERA_W x CAMERA_H crop that follows
+// the character, Among-Us style, instead of showing the whole (taller
+// than wide) building shrunk to fit. By default the crop is also capped
+// so the patio and the lounge — off to the east and north respectively —
+// stay off-screen; the cap relaxes smoothly as the character actually
+// walks toward either one, revealing it rather than showing it from the
+// start. North/south and the washrooms side use plain centred clamping.
+//
+// The reveal caps used to be hard limits, which could pin the character
+// right up against the edge of the frame for a while (e.g. anywhere in
+// the bar/lounge before LOUNGE_UNLOCK_Y, the window was pushed as far
+// down as topCap allowed, however far that was from true centre). Now
+// each cap only gets to push the window away from dead-centre by up to
+// REVEAL_PUSH_X/Y, so the character stays within a steady band around the
+// middle of the screen at all times — the floor plan still slides to
+// reveal more of wherever they're headed, there's just a ceiling on how
+// far off-centre that reveal is allowed to shove them.
+var CAMERA_W = 60, CAMERA_H = 72;
+var PATIO_UNLOCK_X = 70, PATIO_HIDE_EDGE = 73;
+var LOUNGE_UNLOCK_Y = 58, LOUNGE_HIDE_EDGE = 50;
+var REVEAL_PUSH_X = CAMERA_W * 0.27, REVEAL_PUSH_Y = CAMERA_H * 0.25;
+function lerp(a, b, t){ return a + (b - a) * Math.max(0, Math.min(1, t)); }
+function floorCamera(charX, charY){
+  var camX0 = charX - CAMERA_W / 2;
+  var camY0 = charY - CAMERA_H / 2;
+  var rightCap = charX <= PATIO_UNLOCK_X ? PATIO_HIDE_EDGE
+    : lerp(PATIO_HIDE_EDGE, WORLD_W, (charX - PATIO_UNLOCK_X) / (WORLD_W - PATIO_UNLOCK_X));
+  var camXCapped = Math.min(camX0, Math.max(0, rightCap - CAMERA_W));
+  var camX = Math.max(camXCapped, camX0 - REVEAL_PUSH_X);
+  camX = Math.max(0, Math.min(WORLD_W - CAMERA_W, camX));
+  var topCap = charY >= LOUNGE_UNLOCK_Y ? LOUNGE_HIDE_EDGE
+    : lerp(LOUNGE_HIDE_EDGE, 0, (LOUNGE_UNLOCK_Y - charY) / LOUNGE_UNLOCK_Y);
+  var camYCapped = Math.max(camY0, topCap);
+  var camY = Math.min(camYCapped, camY0 + REVEAL_PUSH_Y);
+  camY = Math.max(0, Math.min(WORLD_H - CAMERA_H, camY));
+  return [Math.round(camX * 10) / 10, Math.round(camY * 10) / 10];
+}
+// The real building isn't a plain rectangle — the lounge/bar sits in a
+// narrower upper section (see FLOOR_WALLS's "notch" in data.py), so the
+// outline is a traced path, not a <rect>, with that corner cut away.
+var FLOOR_NOTCH = (function(){
+  for (var i = 0; i < FLOOR_WALLS.length; i++){ if (FLOOR_WALLS[i].key === 'notch') return FLOOR_WALLS[i]; }
+  return null;
+})();
+function svgBuildingOutline(){
+  if (!FLOOR_NOTCH) return '<rect class="bp-building" x="1" y="1" width="' + (WORLD_W - 2) + '" height="' + (WORLD_H - 2) + '" rx="2"></rect>';
+  var nx = FLOOR_NOTCH.x1, ny = FLOOR_NOTCH.y1;
+  var d = 'M ' + nx + ' 1 L ' + (WORLD_W - 1) + ' 1 L ' + (WORLD_W - 1) + ' ' + (WORLD_H - 1) +
+    ' L 1 ' + (WORLD_H - 1) + ' L 1 ' + ny + ' L ' + nx + ' ' + ny + ' Z';
+  return '<path class="bp-building" d="' + d + '"></path>';
+}
+// Load-bearing walls (east divider with its three real door gaps) drawn
+// as solid dark-wood bars — distinct from the thin cream zone outlines,
+// so it actually reads as something the character can't just stroll
+// through, door gaps included.
+function svgWallShape(w){
+  return '<rect class="bp-wall" x="' + w.x0 + '" y="' + w.y0 + '" width="' + (w.x1 - w.x0) + '" height="' + (w.y1 - w.y0) + '"></rect>';
+}
+// A small illustrated Folietta server — mustache, dark hair, burgundy vest
+// with gold buttons — standing in for the plain dot the character used to
+// be. Everything is drawn in local coordinates around (0,0) and the whole
+// group is positioned with a transform, so moving the character is just
+// updating that one transform (see the slider-drag handler below), not
+// juggling cx/cy on a shape. Kept deliberately simple (a handful of circles
+// and one rounded body shape) since at the map's zoom level — a few dozen
+// screen pixels across — anything finer than that just turns to mush.
+function svgCharacterIcon(x, y){
+  return '<g class="floor-char" id="floor-char-dot" transform="translate(' + x + ',' + y + ')">' +
+    '<ellipse class="floor-char-shadow" cx="0" cy="1.95" rx="1.7" ry="0.5"></ellipse>' +
+    '<circle class="floor-char-hair" cx="0" cy="-2.5" r="1.05"></circle>' +
+    '<rect class="floor-char-body" x="-1.3" y="-0.9" width="2.6" height="2.75" rx="1.1"></rect>' +
+    '<circle class="floor-char-button" cx="0" cy="-0.1" r="0.17"></circle>' +
+    '<circle class="floor-char-button" cx="0" cy="0.65" r="0.17"></circle>' +
+    '<circle class="floor-char-head" cx="0" cy="-1.95" r="1.25"></circle>' +
+    '<ellipse class="floor-char-stache" cx="-0.48" cy="-1.55" rx="0.5" ry="0.2" transform="rotate(-18 -0.48 -1.55)"></ellipse>' +
+    '<ellipse class="floor-char-stache" cx="0.48" cy="-1.55" rx="0.5" ry="0.2" transform="rotate(18 0.48 -1.55)"></ellipse>' +
+  '</g>';
+}
+function svgFloorBlueprint(hideTableNumbers, targetTable, charX, charY, trailPath){
+  var cam = floorCamera(charX, charY);
+  var svg = '<svg viewBox="' + cam[0] + ' ' + cam[1] + ' ' + CAMERA_W + ' ' + CAMERA_H + '" class="floor-map-svg" id="floor-map-svg" preserveAspectRatio="xMidYMid meet">';
+  svg += svgBuildingOutline();
+  FLOOR_ZONES.forEach(function(z){ svg += svgZoneShape(z); });
+  FLOOR_ZONES.forEach(function(z){ svg += svgZoneFixture(z); });
+  FLOOR_TABLES.forEach(function(t){ svg += svgTableShape(t, hideTableNumbers, !hideTableNumbers && !!(targetTable && targetTable.id === t.id)); });
+  FLOOR_WALLS.forEach(function(w){ if (w.key === 'east-wall') svg += svgWallShape(w); });
+  var pts = trailPath.map(function(p){ return p[0].toFixed(1) + ',' + p[1].toFixed(1); }).join(' ');
+  svg += '<polyline class="floor-trail" id="floor-trail" points="' + pts + '"></polyline>';
+  svg += svgCharacterIcon(charX, charY);
+  // Zone labels are drawn LAST (on top of tables, the trail and the
+  // character) so the name of whatever a server is standing next to or
+  // walking through stays legible instead of getting covered by the
+  // character icon — easy to happen since labels sit right where a
+  // player would naturally park themselves to interact with a counter.
+  FLOOR_ZONES.forEach(function(z){ svg += svgZoneLabel(z); });
+  svg += '</svg>';
+  return svg;
+}
+// The map (left) plus the two drag sliders — X along the bottom, Y along
+// the right — that are the ONLY way the character moves now. Sliders carry
+// the live x/y so a fresh render always starts them exactly where the
+// character actually is.
+function renderFloorStage(x, y, hideNum, targetTable, trailPath){
+  var svg = svgFloorBlueprint(hideNum, targetTable, x, y, trailPath);
+  return '<div class="floor-stage">' +
+    '<div class="floor-map-wrap" id="floor-map-wrap">' + svg + '</div>' +
+    '<div class="floor-slider-y-wrap"><input type="range" class="floor-slider" id="floor-slider-y" data-axis="y" ' +
+      'min="2" max="' + (WORLD_H - 2) + '" step="0.5" value="' + y + '" aria-label="Move up or down"></div>' +
+    '<div class="floor-slider-x-wrap"><input type="range" class="floor-slider" id="floor-slider-x" data-axis="x" ' +
+      'min="2" max="' + (WORLD_W - 2) + '" step="0.5" value="' + x + '" aria-label="Move left or right"></div>' +
+  '</div>';
+}
+
+// ---------------------------------------------------------------------
+// Layout Editor — drag-to-reposition view of the whole floor plan (see
+// EDITOR_ENABLED above). Shows the full WORLD_W x WORLD_H map at once
+// (no camera crop, no character) with every counter and table wrapped in
+// a draggable <g>; dragging updates EDIT_STATE's per-item (dx,dy) offset,
+// which the export JSON below bakes into new x/y values. Reuses the exact
+// same zone/table-shape renderers as the live game, so what's dragged here
+// looks exactly like what's actually on the floor.
+// ---------------------------------------------------------------------
+function svgLayoutEditorBlueprint(){
+  var svg = '<svg viewBox="0 0 ' + WORLD_W + ' ' + WORLD_H + '" class="layout-editor-svg" id="layout-editor-svg" preserveAspectRatio="xMidYMid meet">';
+  svg += svgBuildingOutline();
+  FLOOR_ZONES.forEach(function(z){
+    var off = EDIT_STATE.zones[z.key] || { dx: 0, dy: 0 };
+    svg += '<g class="edit-draggable" data-editkind="zone" data-editkey="' + esc(z.key) + '" transform="translate(' + off.dx + ',' + off.dy + ')">' +
+      svgZoneShape(z) + svgZoneFixture(z) + svgZoneLabel(z) + '</g>';
+  });
+  FLOOR_TABLES.forEach(function(t){
+    var off = EDIT_STATE.tables[t.id] || { dx: 0, dy: 0 };
+    svg += '<g class="edit-draggable" data-editkind="table" data-editkey="' + esc(String(t.id)) + '" transform="translate(' + off.dx + ',' + off.dy + ')">' +
+      svgTableShape(t, false, false) + '</g>';
+  });
+  FLOOR_WALLS.forEach(function(w){ if (w.key === 'east-wall') svg += svgWallShape(w); });
+  svg += '</svg>';
+  return svg;
+}
+// Only the items actually moved from their data.py position — keeps the
+// "Changes" panel and the exported JSON short and easy to read back.
+function editLayoutChanges(){
+  var zones = [], tables = [];
+  FLOOR_ZONES.forEach(function(z){
+    var off = EDIT_STATE.zones[z.key];
+    if (off && (off.dx || off.dy)){
+      zones.push({ key: z.key, name: z.name, x: Math.round((z.x + off.dx) * 10) / 10, y: Math.round((z.y + off.dy) * 10) / 10 });
+    }
+  });
+  FLOOR_TABLES.forEach(function(t){
+    var off = EDIT_STATE.tables[t.id];
+    if (off && (off.dx || off.dy)){
+      tables.push({ id: t.id, x: Math.round((t.x + off.dx) * 10) / 10, y: Math.round((t.y + off.dy) * 10) / 10 });
+    }
+  });
+  return { zones: zones, tables: tables };
+}
+function editLayoutJSON(){
+  var changes = editLayoutChanges();
+  var out = { zones: {}, tables: {} };
+  changes.zones.forEach(function(z){ out.zones[z.key] = { x: z.x, y: z.y }; });
+  changes.tables.forEach(function(t){ out.tables[t.id] = { x: t.x, y: t.y }; });
+  return JSON.stringify(out, null, 2);
+}
+function viewLayoutEditor(){
+  var html = topbar('Layout Editor', 'home');
+  html += '<div class="card"><h2>Drag things into place</h2>' +
+    '<p class="small muted">Admin tool, not part of the staff game. Drag any counter or table on the map below to where it should actually be. ' +
+    'When it looks right, copy the layout JSON and send it back so the change can be made exactly — no more guessing from a screenshot.</p></div>';
+  html += '<div class="layout-editor-wrap" id="layout-editor-wrap">' + svgLayoutEditorBlueprint() + '</div>';
+  var changes = editLayoutChanges();
+  var count = changes.zones.length + changes.tables.length;
+  html += '<div class="card"><h2>Changes' + (count ? ' (' + count + ')' : '') + '</h2>';
+  if (!count){
+    html += '<p class="small muted">Nothing moved yet &mdash; drag a counter or table above.</p>';
+  } else {
+    changes.zones.forEach(function(z){
+      html += '<p class="small">' + esc(z.name) + ' <span class="muted">(' + esc(z.key) + ')</span> &rarr; x ' + z.x + ', y ' + z.y + '</p>';
+    });
+    changes.tables.forEach(function(t){
+      html += '<p class="small">Table ' + esc(String(t.id)) + ' &rarr; x ' + t.x + ', y ' + t.y + '</p>';
+    });
+  }
+  var json = editLayoutJSON();
+  html += '<div class="btn-row">' +
+    '<button class="btn ghost" data-action="copy-layout-json">Copy layout JSON</button>' +
+    (downloadsCap ? '<button class="btn ghost" data-action="download-layout-json">Download .json</button>' : '') +
+    '<button class="btn ghost" data-action="reset-layout"' + (count ? '' : ' disabled') + '>Reset all</button>' +
+    '</div>';
+  html += '<textarea class="layout-json-box" id="layout-json-box" readonly rows="6">' + esc(json) + '</textarea>';
+  html += '</div>';
+  return html;
+}
+
+function renderDishTray(r){
+  var html = '<div class="plate-tray">';
+  r.dishes.forEach(function(d){
+    var at = r.placed[d.id];
+    var armed = r.armedDish === d.id;
+    html += '<button class="plate-chip' + (armed ? ' armed' : '') + (at ? ' placed' : '') + '" data-action="tap-dish" data-dish="' + d.id + '">' +
+      '<span class="plate-icon">&#127860;</span><span class="plate-name">' + esc(d.name) + '</span>' +
+      '<span class="plate-where' + (at ? '' : ' muted') + '">' + (at ? (at === 'shared' ? 'Centre' : 'Seat ' + at.replace('seat-', '')) : 'Tap, then tap a spot') + '</span></button>';
+  });
+  html += '</div>';
+  return html;
+}
+function renderTableDiagram(table, placed){
+  if (table.isCounter){
+    var h1 = '<div class="table-diagram"><div class="counter-row">';
+    table.seats.forEach(function(s){
+      var key = 'seat-' + s;
+      var filled = Object.keys(placed).some(function(id){ return placed[id] === key; });
+      h1 += '<button class="seat-slot' + (filled ? ' filled' : '') + '" data-action="place-at" data-target="' + key + '">' +
+        '<span class="seat-num">' + s + '</span>' + (filled ? '<span class="seat-plate">&#127860;</span>' : '') + '</button>';
+    });
+    h1 += '</div></div>';
+    return h1;
+  }
+  var fourTop = table.seats.length === 4;
+  var h2 = '<div class="table-diagram"><div class="table-shape ' + (fourTop ? 'four-top' : 'two-top') + '">';
+  var centreCount = Object.keys(placed).filter(function(id){ return placed[id] === 'shared'; }).length;
+  h2 += '<button class="centre-slot' + (centreCount ? ' filled' : '') + '" data-action="place-at" data-target="shared">' +
+    '<span>Shared</span>' + (centreCount ? '<span class="centre-plates">' + centreCount + ' &#127860;</span>' : '') + '</button>';
+  table.seats.forEach(function(s, i){
+    var key = 'seat-' + s;
+    var filled = Object.keys(placed).some(function(id){ return placed[id] === key; });
+    h2 += '<button class="seat-slot seat-pos-' + i + '" data-action="place-at" data-target="' + key + '">' +
+      '<span class="seat-num">' + s + '</span>' + (filled ? '<span class="seat-plate">&#127860;</span>' : '') + '</button>';
+  });
+  h2 += '</div></div>';
+  return h2;
+}
+
+function viewFloorSetup(){
+  var html = topbar('Run the Floor', 'home');
+  html += '<div class="disclaimer">Table/seat numbers and the floor plan are accurate as of today — reconfirm with a manager if the room layout has changed.</div>';
+  html += '<div class="card"><h2>How to play</h2><p class="small">Each round drops a ticket with 2&ndash;4 dishes, starting at Hot Pickup. ' +
+    'Drag the sliders — one for side-to-side, one for up-and-down — to walk yourself out to the table, around the real walls and furniture. ' +
+    'Plate everything — shared in the centre, or on its exact seat — then choose your own way back to the pass. ' +
+    'You\'re scored on your own choices: how directly you walked, how quickly, and whether you kept moving forward instead of backtracking.</p></div>';
+  html += '<div class="card"><h2>How many deliveries?</h2><div class="btn-row">';
+  [3, 5, 8].forEach(function(n){
+    html += '<button class="btn secondary" data-action="start-floor" data-n="' + n + '">' + n + ' deliveries</button>';
+  });
+  html += '</div></div>';
+  return html;
+}
+
+function renderTicketDishes(dishes){
+  var html = '<div class="plate-tray">';
+  dishes.forEach(function(d){
+    var where = d.assign.type === 'shared' ? 'Shared — centre of table' : 'Seat ' + d.assign.seat;
+    html += '<div class="plate-chip static"><span class="plate-icon">&#127860;</span>' +
+      '<span class="plate-name">' + esc(d.name) + '</span>' +
+      '<span class="plate-where">' + esc(where) + '</span></div>';
+  });
+  html += '</div>';
+  return html;
+}
+function viewFloorTicket(){
+  var r = state.round;
+  var html = topbar('Run the Floor', 'home', streakBadge(state.floorStreak));
+  html += '<p class="muted small">Delivery ' + ((state.floorIndex || 0) + 1) + ' of ' + state.floorTotal + '</p>';
+  html += '<div class="card"><h2>New ticket — ' + esc(tableLabel(r.table)) + '</h2>';
+  html += renderTicketDishes(r.dishes);
+  html += '<p class="small muted" style="margin-top:10px;">Picked up from: <strong>' + r.pickupsNeeded.map(function(p){
+    return esc((PICKUP_STATIONS.filter(function(ps){ return ps.key === p; })[0] || {}).name || p);
+  }).join(' and ') + '</strong> — the bell just rang.</p>';
+  html += '<div class="btn-row"><button class="btn" data-action="go-floor-route">Check in with the chef &rarr;</button></div>';
+  html += '</div>';
+  return html;
+}
+
+function viewFloorRoute(){
+  var r = state.round;
+  var html = topbar('Run the Floor', 'home', streakBadge(state.floorStreak));
+  html += '<div class="card" style="margin-bottom:8px;"><h2>Walk it to ' + esc(tableLabel(r.table)) + '</h2>';
+  html += '<p class="small muted">' + (r.fArrived ? 'Delivered!' : 'Drag the sliders to walk yourself there — think about which table it is, the numbers won\'t show until you arrive.') + '</p></div>';
+  html += renderFloorStage(r.fx, r.fy, !r.fArrived, r.table, r.fPath);
+  if (r.fArrived){
+    html += '<div class="card" style="text-align:center;"><p class="q-feedback good">&#127881; You made it to ' + esc(tableLabel(r.table)) + '!</p>' +
+      '<div class="btn-row" style="justify-content:center;"><button class="btn" data-action="go-floor-place">Start plating &rarr;</button></div></div>';
+  }
+  return html;
+}
+
+function viewFloorPlace(){
+  var r = state.round;
+  var html = topbar('Run the Floor', 'home', streakBadge(state.floorStreak));
+  html += '<div class="card"><h2>Plate it up — ' + esc(tableLabel(r.table)) + '</h2>';
+  html += '<p class="small muted">Tap a dish, then tap where it goes.</p>';
+  html += renderDishTray(r);
+  html += renderTableDiagram(r.table, r.placed);
+  var allPlaced = r.dishes.every(function(d){ return !!r.placed[d.id]; });
+  html += '<div class="btn-row"><button class="btn" data-action="go-floor-return"' + (allPlaced ? '' : ' disabled') + '>Done plating — head back &rarr;</button></div>';
+  html += '</div>';
+  return html;
+}
+
+function viewFloorReturn(){
+  var r = state.round;
+  var html = topbar('Run the Floor', 'home', streakBadge(state.floorStreak));
+  html += '<div class="card" style="margin-bottom:8px;"><h2>Back to the kitchen pass</h2>';
+  html += '<p class="small muted">' + (r.rArrived ? 'Back at the pass!' : 'Choose your own way back to Hot Pickup — straight there, never by Cold Pickup.') + '</p></div>';
+  html += renderFloorStage(r.rx, r.ry, false, r.table, r.rPath);
+  if (r.rArrived){
+    html += '<div class="card" style="text-align:center;"><p class="q-feedback good">&#127881; Back at the pass, ready for the next ticket!</p>' +
+      '<div class="btn-row" style="justify-content:center;"><button class="btn" data-action="finish-floor-return">See how you did &rarr;</button></div></div>';
+  }
+  return html;
+}
+
+function floorLegSummaryLine(m, lead, wrongNoun){
+  if (!m) return '';
+  var bits = [];
+  bits.push(Math.round(m.efficiency * 100) + '% direct path');
+  bits.push(m.elapsedSec.toFixed(1) + 's');
+  bits.push(m.reversals ? m.reversals + ' backtrack' + (m.reversals === 1 ? '' : 's') : 'no backtracking');
+  if (m.wrongCount) bits.push(m.wrongCount + ' wrong ' + wrongNoun + (m.wrongCount === 1 ? '' : 's') + ' along the way');
+  return '<p class="small">On the way ' + lead + ': ' + bits.join(', ') + '.</p>';
+}
+function viewFloorRoundResult(){
+  var r = state.lastFloorRound;
+  var place = floorPlacementScore(r);
+  var route = floorRouteScore(r);
+  var back = floorReturnScore(r);
+  var roundScore = Math.round((route + back + place.pct) / 3);
+  if (roundScore >= 70) burstConfetti({ count: roundScore >= 90 ? 70 : 40, duration: 1300 });
+  var html = topbar('Round Complete', null);
+  html += '<div class="card" style="text-align:center;"><div class="score-circle"><span class="num">' + roundScore + '%</span><span class="lbl">round score</span></div>' +
+    '<p class="muted">' + esc(tableLabel(r.table)) + ' — there ' + route + '%, back ' + back + '%, plating ' + place.correct + '/' + place.total + ' correct</p></div>';
+  html += '<div class="card"><h2>How it went</h2>';
+  html += floorLegSummaryLine(r.fMetrics, 'there', 'table');
+  html += floorLegSummaryLine(r.rMetrics, 'back', 'pass');
+  r.dishes.forEach(function(d){
+    var want = d.assign.type === 'shared' ? 'shared' : ('seat-' + d.assign.seat);
+    var got = r.placed[d.id];
+    var ok = got === want;
+    html += '<p class="small" style="color:' + (ok ? 'var(--success-deep)' : 'var(--danger-deep)') + '">' +
+      (ok ? '&#10003;' : '&#10007;') + ' ' + esc(d.name) + ' — should be ' +
+      (d.assign.type === 'shared' ? 'shared (centre)' : 'seat ' + d.assign.seat) +
+      (ok ? '' : ', you placed it ' + (got ? (got === 'shared' ? 'shared (centre)' : 'at seat ' + got.replace('seat-', '')) : 'nowhere')) + '</p>';
+  });
+  html += '</div>';
+  html += '<div class="btn-row"><button class="btn" data-action="next-floor-round">' +
+    (((state.floorIndex || 0) + 1) >= state.floorTotal ? 'See final results' : 'Next round') + ' &rarr;</button></div>';
+  return html;
+}
+
+function viewFloorResult(){
+  var identity = getIdentity();
+  var rounds = state.floorRoundResults || [];
+  var avg = rounds.length ? Math.round(rounds.reduce(function(s, x){ return s + x.roundScore; }, 0) / rounds.length) : 0;
+  if (avg >= 70) burstConfetti({ count: avg >= 90 ? 90 : 55, duration: 1700 });
+  var title = avg >= 90 ? '🏆 Crushed It!' : (avg >= 70 ? '🎉 Nice Work!' : 'Shift Complete');
+  var html = topbar(title, null);
+  html += '<div class="card" style="text-align:center;"><div class="score-circle"><span class="num">' + avg + '%</span><span class="lbl">avg score</span></div>' +
+    '<p class="muted">' + rounds.length + ' deliveries run this session</p></div>';
+  html += '<div class="card"><h2>Deliveries</h2>';
+  rounds.forEach(function(x, i){
+    html += '<p class="small">' + (i + 1) + '. ' + esc(tableLabel(x.table)) + ' — ' + x.roundScore + '% (there ' + x.routeScore +
+      '%, back ' + x.returnScore + '%, plating ' + x.placementCorrect + '/' + x.placementTotal + ')</p>';
+  });
+  html += '</div>';
+
+  if (!state.floorRecorded){
+    pushHistory({ gameType: 'floor-run', floorScore: avg, floorRounds: rounds.length, completedAt: new Date().toISOString() });
+    state.floorRecorded = true;
+  }
+
+  var summary = floorSummaryText(rounds, identity.name, avg);
+  html += sendRow(summary, 'Folietta Run the Floor — ' + identity.name, 'folietta-floor-run');
+  html += '<div class="btn-row"><button class="btn secondary" data-action="go" data-view="home">Back to home</button></div>';
+  return html;
+}
+
+// ---------------------------------------------------------------------
 // View: My Results (local to this device)
 // ---------------------------------------------------------------------
 function viewMyResults(){
@@ -937,6 +1804,9 @@ function viewMyResults(){
     if (r.gameType === 'dinner-build'){
       html += '<div class="badge-row"><span class="badge">Dinner Build</span><span class="badge">' + esc(fmtDate(r.completedAt)) + '</span></div>';
       html += '<p><strong>' + esc(r.scenarioTitle || '') + '</strong> — score ' + r.score + '/100</p>';
+    } else if (r.gameType === 'floor-run'){
+      html += '<div class="badge-row"><span class="badge">Run the Floor</span><span class="badge">' + esc(fmtDate(r.completedAt)) + '</span></div>';
+      html += '<p>Avg score: ' + (r.floorScore != null ? r.floorScore : '?') + '% across ' + (r.floorRounds || 0) + ' deliveries</p>';
     } else {
       html += '<div class="badge-row"><span class="badge">Quiz</span><span class="badge">' + esc(fmtDate(r.completedAt)) + '</span></div>';
       html += '<p>Score: ' + (r.quizScore != null ? r.quizScore : '?') + '/' + (r.quizTotal != null ? r.quizTotal : '?') + '</p>';
@@ -958,7 +1828,15 @@ var VIEWS = {
   quizSetup: viewQuizSetup,
   quizPlay: viewQuizPlay,
   quizResult: viewQuizResult,
-  myResults: viewMyResults
+  floorSetup: viewFloorSetup,
+  floorTicket: viewFloorTicket,
+  floorRoute: viewFloorRoute,
+  floorPlace: viewFloorPlace,
+  floorReturn: viewFloorReturn,
+  floorRoundResult: viewFloorRoundResult,
+  floorResult: viewFloorResult,
+  myResults: viewMyResults,
+  layoutEditor: viewLayoutEditor
 };
 
 function render(){
@@ -972,6 +1850,74 @@ function render(){
   }
   var pi = document.getElementById('pin-input');
   if (pi){ pi.focus(); }
+  // The Y slider is a horizontal <input type=range> rotated on its side —
+  // its native track length becomes the map's rendered height, which we
+  // only know after layout, so size it here rather than in CSS.
+  var ySlider = document.getElementById('floor-slider-y');
+  var mapWrap = document.getElementById('floor-map-wrap');
+  if (ySlider && mapWrap){ ySlider.style.width = mapWrap.clientHeight + 'px'; }
+}
+// Drags the character along one axis toward the slider's new value,
+// stopping at the nearest wall/table in the way, records a path sample,
+// and checks for arrival — all without a full render() so native slider
+// dragging stays smooth. Only arriving (which changes the whole card)
+// triggers a real render().
+function handleFloorSliderInput(e){
+  var axis = e.target.getAttribute('data-axis');
+  var isReturn = state.view === 'floorReturn';
+  if (!isReturn && state.view !== 'floorRoute') return;
+  var r = state.round;
+  if (isReturn ? r.rArrived : r.fArrived) return;
+
+  var desired = parseFloat(e.target.value);
+  var oldX = isReturn ? r.rx : r.fx, oldY = isReturn ? r.ry : r.fy;
+  var newVal = floorStepAxis(oldX, oldY, desired, axis);
+  e.target.value = newVal; // snap the thumb back if a wall/table blocked it
+  var newX = axis === 'x' ? newVal : oldX;
+  var newY = axis === 'y' ? newVal : oldY;
+  if (isReturn){ r.rx = newX; r.ry = newY; } else { r.fx = newX; r.fy = newY; }
+
+  var path = isReturn ? r.rPath : r.fPath;
+  var last = path[path.length - 1];
+  var moved = Math.sqrt(Math.pow(newX - last[0], 2) + Math.pow(newY - last[1], 2));
+  if (moved >= 1.2) path.push([newX, newY]);
+
+  var dot = document.getElementById('floor-char-dot');
+  if (dot){ dot.setAttribute('transform', 'translate(' + newX + ',' + newY + ')'); }
+  var trail = document.getElementById('floor-trail');
+  if (trail){ trail.setAttribute('points', path.map(function(p){ return p[0].toFixed(1) + ',' + p[1].toFixed(1); }).join(' ')); }
+  // Keep the glass-window camera glued to the character while dragging —
+  // same direct-DOM approach as the dot/trail above, no full render().
+  var svgEl = document.getElementById('floor-map-svg');
+  if (svgEl){
+    var cam = floorCamera(newX, newY);
+    svgEl.setAttribute('viewBox', cam[0] + ' ' + cam[1] + ' ' + CAMERA_W + ' ' + CAMERA_H);
+  }
+
+  if (!isReturn){
+    FLOOR_TARGETS.forEach(function(t){
+      if (t.id === r.table.id || r.fWrongSeen[t.id]) return;
+      if (floorIsAtTarget(newX, newY, t)){ r.fWrongSeen[t.id] = true; r.fWrongCount++; }
+    });
+  } else if (!r.rWrongSeenCold){
+    var cold = ZONE['pickup-cold'], cx0 = cold.x - cold.w / 2, cy0 = cold.y - cold.h / 2;
+    if (newX >= cx0 && newX <= cx0 + cold.w && newY >= cy0 && newY <= cy0 + cold.h){
+      r.rWrongSeenCold = true; r.rWrongCount++;
+    }
+  }
+
+  var target = isReturn ? { id: 'pickup-hot' } : r.table;
+  if (floorIsAtTarget(newX, newY, target)){
+    if (isReturn){
+      r.rArrived = true;
+      r.rMetrics = floorLegMetrics(r.rPath, r.rStart, floorTargetPoint(target), Date.now() - r.rStartTime, r.rWrongCount);
+    } else {
+      r.fArrived = true;
+      r.fMetrics = floorLegMetrics(r.fPath, r.fStart, floorTargetPoint(r.table), Date.now() - r.fStartTime, r.fWrongCount);
+    }
+    burstConfetti({ count: 20, duration: 700 });
+    render();
+  }
 }
 
 // ---------------------------------------------------------------------
@@ -1075,7 +2021,117 @@ document.addEventListener('click', function(e){
     if (downloadsCap){
       downloadsCap.save({ filename: el.getAttribute('data-filename'), data: el.getAttribute('data-text') }).catch(function(){});
     }
+  } else if (action === 'start-floor'){
+    var nf = parseInt(el.getAttribute('data-n'), 10);
+    go('floorTicket', { floorTotal: nf, floorIndex: 0, floorRoundResults: [], floorStreak: 0, floorRecorded: false, round: buildFloorRound() });
+  } else if (action === 'go-floor-route'){
+    state.round.fStartTime = Date.now();
+    floorGo('floorRoute');
+  } else if (action === 'go-floor-place'){
+    floorGo('floorPlace');
+  } else if (action === 'tap-dish'){
+    var did = el.getAttribute('data-dish');
+    state.round.armedDish = (state.round.armedDish === did) ? null : did;
+    render();
+  } else if (action === 'place-at'){
+    var tgt = el.getAttribute('data-target');
+    var rPlace = state.round;
+    if (rPlace.armedDish){
+      rPlace.placed[rPlace.armedDish] = tgt;
+      rPlace.armedDish = null;
+      render();
+    }
+  } else if (action === 'go-floor-return'){
+    var rRet = state.round;
+    // Start the walk back from wherever they're actually standing (where
+    // the forward leg left them, just outside the table) — not teleported
+    // to the table's exact centre, which sits inside the table's own
+    // collision box and would leave them unable to move at all.
+    var rStart = [rRet.fx, rRet.fy];
+    rRet.rStart = rStart; rRet.rx = rStart[0]; rRet.ry = rStart[1]; rRet.rPath = [rStart.slice()];
+    rRet.rArrived = false; rRet.rStartTime = Date.now(); rRet.rWrongCount = 0; rRet.rWrongSeenCold = false; rRet.rMetrics = null;
+    floorGo('floorReturn');
+  } else if (action === 'finish-floor-return'){
+    var rFin = state.round;
+    var place = floorPlacementScore(rFin);
+    var routeScore = floorRouteScore(rFin);
+    var returnScore = floorReturnScore(rFin);
+    var roundScore = Math.round((routeScore + returnScore + place.pct) / 3);
+    state.lastFloorRound = rFin;
+    state.floorStreak = roundScore >= 70 ? (state.floorStreak || 0) + 1 : 0;
+    state.floorRoundResults = (state.floorRoundResults || []).concat([{
+      table: rFin.table, routeScore: routeScore, returnScore: returnScore,
+      placementCorrect: place.correct, placementTotal: place.total, roundScore: roundScore
+    }]);
+    floorGo('floorRoundResult');
+  } else if (action === 'next-floor-round'){
+    var nextIdx = (state.floorIndex || 0) + 1;
+    if (nextIdx >= state.floorTotal){
+      floorGo('floorResult');
+    } else {
+      state.floorIndex = nextIdx;
+      state.round = buildFloorRound();
+      floorGo('floorTicket');
+    }
+  } else if (action === 'copy-layout-json'){
+    copyText(editLayoutJSON(), el);
+  } else if (action === 'download-layout-json'){
+    if (downloadsCap){
+      downloadsCap.save({ filename: 'folietta-layout.json', data: editLayoutJSON() }).catch(function(){});
+    }
+  } else if (action === 'reset-layout'){
+    EDIT_STATE = freshEditState();
+    render();
   }
+});
+
+// ---------------------------------------------------------------------
+// Layout Editor dragging — plain Pointer Events (covers mouse, touch and
+// pen in one handler) rather than reusing the floor sliders, since here
+// any item can move in any direction by any amount, not just the
+// character along one axis at a time. editSvgPoint converts a raw
+// clientX/clientY into the SVG's own user-space coordinates via its
+// screen CTM, so the drag tracks 1:1 under the pointer regardless of how
+// large the map is actually rendered on screen. Only the dragged item's
+// own <g transform> is touched while dragging (cheap, smooth); the
+// Changes panel and JSON export are refreshed once, on release.
+// ---------------------------------------------------------------------
+var editDrag = null;
+function editSvgPoint(svgEl, clientX, clientY){
+  var pt = svgEl.createSVGPoint();
+  pt.x = clientX; pt.y = clientY;
+  var ctm = svgEl.getScreenCTM();
+  if (!ctm) return { x: 0, y: 0 };
+  var loc = pt.matrixTransform(ctm.inverse());
+  return { x: loc.x, y: loc.y };
+}
+document.addEventListener('pointerdown', function(e){
+  var g = e.target.closest('.edit-draggable');
+  if (!g) return;
+  var svgEl = document.getElementById('layout-editor-svg');
+  if (!svgEl) return;
+  var kind = g.getAttribute('data-editkind');
+  var key = g.getAttribute('data-editkey');
+  var bucket = kind === 'zone' ? EDIT_STATE.zones : EDIT_STATE.tables;
+  var off = bucket[key] || (bucket[key] = { dx: 0, dy: 0 });
+  var p = editSvgPoint(svgEl, e.clientX, e.clientY);
+  editDrag = { g: g, svgEl: svgEl, off: off, startPX: p.x, startPY: p.y, startDX: off.dx, startDY: off.dy };
+  try { g.setPointerCapture(e.pointerId); } catch(err){}
+  e.preventDefault();
+});
+document.addEventListener('pointermove', function(e){
+  if (!editDrag) return;
+  var p = editSvgPoint(editDrag.svgEl, e.clientX, e.clientY);
+  var dx = Math.round((editDrag.startDX + (p.x - editDrag.startPX)) * 10) / 10;
+  var dy = Math.round((editDrag.startDY + (p.y - editDrag.startPY)) * 10) / 10;
+  editDrag.off.dx = dx; editDrag.off.dy = dy;
+  editDrag.g.setAttribute('transform', 'translate(' + dx + ',' + dy + ')');
+});
+document.addEventListener('pointerup', function(e){
+  if (!editDrag) return;
+  try { editDrag.g.releasePointerCapture(e.pointerId); } catch(err){}
+  editDrag = null;
+  if (state.view === 'layoutEditor') render();
 });
 
 function submitPin(pin){
@@ -1097,6 +2153,8 @@ document.addEventListener('input', function(e){
     var digits = e.target.value.replace(/\D/g, '').slice(0, 4);
     if (digits !== e.target.value) e.target.value = digits;
     if (digits.length === 4) submitPin(digits);
+  } else if (e.target && e.target.classList && e.target.classList.contains('floor-slider')){
+    handleFloorSliderInput(e);
   }
 });
 
